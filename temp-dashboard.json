@@ -37,7 +37,7 @@
         "target": {
           "expr": "homeassistant_switch_state{entity=\"switch.tasmota_2\"} == 1",
           "refId": "Anno",
-          "step": "300s",
+          "step": "60s",
           "useValueForTime": false
         }
       }
