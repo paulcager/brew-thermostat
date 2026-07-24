@@ -117,8 +117,22 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 
 ## Current state
 
-Verified working end-to-end 2026-07-16. The brew belt had not yet arrived, so the loop
-has never actually driven a heater — the first real heating cycle is still pending, and
-with it the first real evidence about whether the 1C deadband causes relay chatter.
+Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
+Steady state is ~10 min of heating every 2-3 hours; the belt is idle ~90% of the time,
+so it has ample headroom. The 1C deadband does NOT cause relay chatter — confirmed, so
+that earlier worry is closed.
+
+Learned from running it:
+- The probe (glass, ~8cm above the belt) leads the bulk liquid by ~1C, so the liquid
+  sits a little below the 24C target. Fine for kombucha; the `scoby-death` dashboard
+  line at 30C matches the plug's hard cutoff. Left uncompensated by choice.
+- Each pulse redistributes internally before the vessel cools to the room: after
+  belt-off the probe overshoots ~4 min, decays fast to ~24.1 (local pocket equalising
+  with the bulk), then decays slowly for hours (whole vessel losing heat to the room).
+- Belt rewound from two wraps to one on ~2026-07-20 to lower watts/cm2 and avoid a hot
+  spot; the rise-rate got gentler as intended (partly confounded by a cooler room).
+
+None of these needed a config change — re-tuning the physical heat delivery, the loop
+just adapts, because everything keys off the probe.
 
 The remote `origin` (github.com, user `paulcager`) is not yet created.

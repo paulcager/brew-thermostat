@@ -10,9 +10,15 @@ itself **off** if the readings ever stop arriving.
 
 ## Status
 
-Verified working on real hardware on 2026-07-16, with one caveat: the brew belt had
-not yet arrived, so the loop has been proven end-to-end but has never actually driven
-a heater. The first real heating cycle is still pending.
+Verified working on real hardware, and driving the brew belt against a live vessel
+since 2026-07-18. In steady state the belt pulses for ~10 minutes roughly every 2-3
+hours to hold the vessel near setpoint, cutting out correctly at 24.5C. The 1C deadband
+does not cause relay chatter.
+
+Note the probe reads the glass ~8cm above the belt, and the glass leads the bulk liquid
+by around 1C — so the liquid runs slightly below the 24C target. This is expected and
+fine for kombucha (it brews well from 21C); see the dashboard notes if you want to
+compensate.
 
 ## Hardware
 
