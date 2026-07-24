@@ -118,6 +118,24 @@ Restart 1
 A working snapshot of this configuration is captured in
 [`config/captured-config.txt`](config/captured-config.txt).
 
+## The configuration commands, annotated
+
+The rules are explained further down; these are the non-rule setup commands.
+
+| Command | What it does |
+|---|---|
+| `DevGroupName1 brew` | Puts the device in device group **1**, named `brew`. Both devices must use the **exact same, case-sensitive** name to talk to each other. The `1` is the group slot (a device can be in up to four groups); it is unrelated to the item number `192` used in the rule. |
+| `DevGroupShare 64,64` | Selects which kinds of item this device will **receive,send** over the group, as a bitmask. `64` is the `Event` bit — the only thing we share. Sharing everything (the default) would also sync power state, so if you toggled the plug's relay the sensor would try to follow; restricting to `64` prevents that. **Gotcha:** it reports back in hex, so `64,64` reads as `40,40`. See the gotchas section. |
+| `SetOption85 1` | Master switch for the whole device-groups feature. Off by default. **Needs a restart** before it takes effect — setting it alone does nothing. Required on both devices. |
+| `TelePeriod 60` | How often (seconds) the sensor emits the telemetry reading that triggers its broadcast rule. This is the **heartbeat rate**, and it must stay well under the plug's `PulseTime` window — see the failsafe section. Only meaningful on the sensor; the plug's own `TelePeriod` is just housekeeping. |
+| `PowerOnState 0` | On the plug: boot the relay **off**. The default (`1`) would switch the belt on at power-up, so a power cut would leave it heating unattended until the first reading arrived. Safety setting — see the failsafe section. |
+| `PulseTime1 700` | The failsafe. `700` = 600 seconds. Fully explained under "The failsafe" below — it is the single most important line in the setup. |
+| `Restart 1` | Reboots the device, which is what actually activates `SetOption85`. |
+
+One relevant `SetOption` we **leave alone**: `SetOption19` is **off** on both devices.
+That is correct for Home Assistant's native Tasmota integration; turning it on switches
+to the deprecated legacy MQTT auto-discovery. See the Home Assistant section.
+
 ## The rules, annotated
 
 ### Sensor rule
