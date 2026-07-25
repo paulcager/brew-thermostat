@@ -64,6 +64,24 @@ Related invariants:
 - Sensor `TelePeriod` must stay well below the `PulseTime` window (currently 60s vs
   600s). Lengthening one without the other breaks the heartbeat margin.
 
+## Config commands: what not to break
+
+README.md annotates every setup command in full. The non-obvious rationale, so you
+don't "tidy" these into breakage:
+
+- **`DevGroupShare 64,64` is intentionally not the default.** `64` is the `Event` bit,
+  the only thing the two devices share. The default shares *everything*, which includes
+  power state — the plug's relay toggling would then try to drag the sensor along. Do
+  not widen it to `-1,-1` or similar.
+- **`DevGroupName1 brew` must match byte-for-byte, case-sensitive, on both devices.** A
+  mismatch fails silently: no error, just no data crossing. The `1` is the group slot,
+  unrelated to the item number `192` in the rules.
+- **`SetOption85 1` needs a `Restart` to activate.** Setting it alone does nothing; a
+  device that "won't join the group" has usually just not been restarted.
+- **`SetOption19` stays OFF.** It is correct off for HA's native Tasmota integration.
+  Turning it on switches to deprecated legacy MQTT discovery — do not enable it as a
+  "fix" for a Home Assistant issue.
+
 ## Rules engine: read this before writing a rule
 
 The full reasoning is in README.md's Gotchas. The short version:
@@ -73,8 +91,8 @@ The full reasoning is in README.md's Gotchas. The short version:
   switches the belt on. Sanity checks must be positive whitelists.
 - **Device Groups cannot share sensor values**, whatever the docs say. Use
   `DGR_ITEM_EVENT` (item **192**) to carry a value as an event payload.
-- **`DevGroupShare` reports in hex** — `64,64` reads back as `40`.
-- **`SetOption85` needs a restart** to take effect.
+- **`DevGroupShare` reports in hex** — `64,64` reads back as `40`. Easy to misread when
+  checking your own config.
 - Rule sets are capped at **511 bytes** each; Rule1/Rule2/Rule3 are separate budgets.
 
 ## Testing: the trap
