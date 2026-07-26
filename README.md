@@ -12,8 +12,8 @@ itself **off** if the readings ever stop arriving.
 
 Verified working on real hardware, and driving the brew belt against a live vessel
 since 2026-07-18. In steady state the belt pulses for ~10 minutes roughly every 2-3
-hours to hold the vessel near setpoint, cutting out correctly at 24.5C. The 1C deadband
-does not cause relay chatter.
+hours to hold the vessel near setpoint, cutting out correctly at the off threshold. The
+deadband (now 1.5C) does not cause relay chatter.
 
 Note the probe reads the glass ~8cm above the belt, and the glass leads the bulk liquid
 by around 1C — so the liquid runs slightly below the 24C target. This is expected and
@@ -41,7 +41,7 @@ Broker: `192.168.0.2:1883`, user `tasmota`. Home Assistant runs on the same host
 |---|---|---|
 | Target | 24C | Ideal kombucha fermentation |
 | Heat on below | 23.5C | Target minus half the deadband |
-| Heat off above | 24.5C | Target plus half the deadband |
+| Heat off above | 25.0C | Widened from 24.5C on 2026-07-26 to reduce relay cycling |
 | Hard cutoff | 30C | Well clear of ~35C, which kills the SCOBY |
 | Sanity floor | 5C | Anything at or below this is treated as a broken sensor |
 | Sanity ceiling | 40C | Anything above is treated as a broken sensor |
@@ -107,7 +107,7 @@ SetOption85 1
 PowerOnState 0
 PulseTime1 700
 Rule1 ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON
-Rule2 ON Event#s2>30 DO Power1 off ENDON ON Event#s2<23.5 DO Power1 on ENDON ON Event#s2>24.5 DO Power1 off ENDON
+Rule2 ON Event#s2>30 DO Power1 off ENDON ON Event#s2<23.5 DO Power1 on ENDON ON Event#s2>25 DO Power1 off ENDON
 Rule1 1
 Rule2 1
 Restart 1
@@ -178,20 +178,26 @@ and the reason why is in the gotchas.
 ### Plug Rule2 — hysteresis and cutoff
 
 ```
-ON Event#s2>30   DO Power1 off ENDON
+ON Event#s2>30 DO Power1 off ENDON
 ON Event#s2<23.5 DO Power1 on  ENDON
-ON Event#s2>24.5 DO Power1 off ENDON
+ON Event#s2>25 DO Power1 off ENDON
 ```
 
 | Line | Meaning |
 |---|---|
 | `ON Event#s2>30 DO Power1 off` | Hard safety cutoff, checked before anything else. |
 | `ON Event#s2<23.5 DO Power1 on` | Too cold — heat. This also refreshes the `PulseTime` countdown (see below). |
-| `ON Event#s2>24.5 DO Power1 off` | Warm enough — stop. |
+| `ON Event#s2>25 DO Power1 off` | Warm enough — stop. |
 
-Between 23.5 and 24.5 **no rule fires at all**, and the relay simply keeps its current
+Between 23.5 and 25.0 **no rule fires at all**, and the relay simply keeps its current
 state. That gap *is* the deadband: it is what stops the relay chattering around the
 setpoint. A reading of 24.0 doing nothing is correct behaviour, not a bug.
+
+The off threshold was widened from 24.5 to 25.0 on 2026-07-26 to cut the number of
+relay cycles (about 13/day) as the weather cooled and the belt began running more often.
+A wider deadband means fewer, longer pulses for the same total heat. Because the glass
+probe leads the bulk liquid, letting the glass run a little warmer also nudges the liquid
+closer to the 24C target.
 
 Rule1 and Rule2 are split because a single rule set is limited to 511 bytes, and
 because it keeps "is this reading real?" separate from "what should the heat do?".

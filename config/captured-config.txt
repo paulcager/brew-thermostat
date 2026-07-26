@@ -1,6 +1,6 @@
 # brew-thermostat — captured working configuration
-# 2026-07-16T17:59:10+01:00
-# Verified working end-to-end. Belt not yet connected (load reads 0W).
+# 2026-07-26T17:05:22+01:00
+# Verified working end-to-end. Off threshold widened to 25.0C on 2026-07-26.
 
 ## SENSOR  temp-probe  192.168.0.64  (ESP32, Tasmota 15.5.0, Berry available)
 $ Rule1
@@ -18,7 +18,7 @@ $ TelePeriod
 $ Rule1
 {"Rule1":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":140,"Free":371,"Rules":"ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON"}}
 $ Rule2
-{"Rule2":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":107,"Free":404,"Rules":"ON Event#s2>30 DO Power1 off ENDON ON Event#s2<23.5 DO Power1 on ENDON ON Event#s2>24.5 DO Power1 off ENDON"}}
+{"Rule2":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":105,"Free":406,"Rules":"ON Event#s2>30 DO Power1 off ENDON ON Event#s2<23.5 DO Power1 on ENDON ON Event#s2>25 DO Power1 off ENDON"}}
 $ DevGroupName1
 {"DevGroupName1":"brew","DevGroupName2":"","DevGroupName3":"","DevGroupName4":""}
 $ DevGroupShare
@@ -26,11 +26,11 @@ $ DevGroupShare
 $ SetOption85
 {"SetOption85":"ON"}
 $ PulseTime1
-{"PulseTime1":{"Set":700,"Remaining":691}}
+{"PulseTime1":{"Set":700,"Remaining":540}}
 $ PowerOnState
 {"PowerOnState":0}
 $ SetOption19
 {"SetOption19":"OFF"}
 
-# Note: DevGroupShare reports in HEX — 64,64 reads back as 40.
+# Note: DevGroupShare reports in HEX - 64,64 reads back as 40.
 # Note: PulseTime1 700 = 600 seconds (values 112..64900 are seconds offset by 100).
