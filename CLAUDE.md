@@ -49,18 +49,34 @@ on and verified entirely over each device's HTTP API.
 ## The one thing that must not break
 
 `PulseTime1 700` on the plug is the fail-safe: the relay switches itself off 600s after
-the last `Power ON`, and each temperature reading refreshes that countdown. It is
-implemented in the plug's own firmware, which is the entire point — it survives WiFi,
-broker, and Home Assistant failure.
+the last `Power ON`, and the Rule2 **heartbeat lines** re-issue `Power on` on every
+reading while the belt should be heating, refreshing that countdown. It is implemented in
+the plug's own firmware, which is the entire point — it survives WiFi, broker, and Home
+Assistant failure.
 
 This is a **hard requirement**, not a nicety. Paul specified that the cutout must live
 in the plug precisely because the network may be the thing that failed. Any redesign
 that moves the failsafe into Home Assistant, or into anything reachable only over the
 network, is wrong.
 
+It is a **communication** watchdog (fires when readings stop), not a thermal-runaway
+limit. It cannot protect against the sensor producing plausible-but-wrong low readings
+(dangling in room air, belt outside the insulation) — those keep the heartbeat alive and
+the belt on. Don't oversell it as thermal protection; the `>30` cutoff and the physical
+setup (insulation pins the probe to the glass) are what guard those cases.
+
+**The heartbeat is easy to break by accident.** It must fire in every state where the
+belt should stay on — including the deadband, where the on/off rules are deliberately
+silent. A control rule alone is not enough to feed it. This exact trap cut the belt every
+~10 minutes for a week; see README's "heartbeat starvation bug". If you touch Rule2,
+re-verify BOTH that in-deadband readings keep the belt alive AND that stopped readings
+still kill it.
+
 Related invariants:
 
-- `PowerOnState 0` on the plug — a power cut must not boot the belt into heating.
+- `PowerOnState 0` on the plug — a power cut must not boot the belt into heating. The
+  Rule2 latch (`Var4`) also does not survive reboot, so a boot mid-heat stays off until a
+  genuine below-23.5 reading.
 - Sensor `TelePeriod` must stay well below the `PulseTime` window (currently 60s vs
   600s). Lengthening one without the other breaks the heartbeat margin.
 
@@ -127,8 +143,10 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 ## Conventions
 
 - Setpoints live in the plug's Rule2 and in README.md's table. Change both together.
-- `Var1` on the plug is written but never read — it is deliberate observability, not
-  dead code. Don't "optimise" it away.
+- `Var1` on the plug is written but never read by the rules — deliberate observability
+  (last temperature seen), not dead code. Don't "optimise" it away.
+- `Var4` on the plug IS load-bearing: it is the heartbeat latch (1 = belt should heat).
+  Rule2 depends on it. Not observability — do not repurpose it.
 - Capture config snapshots to `config/captured-config.txt`.
 - Rule text in docs should be annotated. Paul explicitly asked for command-by-command
   explanations; a bare rule string is not adequate documentation here.
@@ -137,8 +155,14 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 
 Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
 Steady state is ~10 min of heating every 2-3 hours; the belt is idle ~90% of the time,
-so it has ample headroom. The 1C deadband does NOT cause relay chatter — confirmed, so
-that earlier worry is closed.
+so it has ample headroom. The deadband (now 1.5C) does NOT cause relay chatter.
+
+On 2026-07-27 fixed a significant latent bug: the `PulseTime` heartbeat starved whenever
+the belt was heating in the deadband, cutting the belt every ~10 min regardless of
+temperature (it was the watchdog timing out, not a rule). Rule2 now carries a latch
+(`Var4`) and heartbeat lines. See README's "heartbeat starvation bug". Off threshold
+widened 24.5 -> 25.0 on 2026-07-26 (that change did nothing at the time because the belt
+was timing out before reaching any threshold — only the bug fix made it effective).
 
 Learned from running it:
 - The probe (glass, ~8cm above the belt) leads the bulk liquid by ~1C, so the liquid
@@ -153,4 +177,6 @@ Learned from running it:
 None of these needed a config change — re-tuning the physical heat delivery, the loop
 just adapts, because everything keys off the probe.
 
-The remote `origin` (github.com, user `paulcager`) is not yet created.
+The repo is public at github.com/paulcager/brew-thermostat. The Grafana dashboard is
+edited via the API (see git history) because pasting into the web editor hangs the
+browser; the token lives in `.grafana-token` (gitignored, never commit it).

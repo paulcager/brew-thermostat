@@ -48,8 +48,8 @@ Broker: `192.168.0.2:1883`, user `tasmota`. Home Assistant runs on the same host
 | Failsafe timeout | 600s (10 min) | No readings for 10 minutes ⇒ heat off |
 | Sensor telemetry | 60s | Ten heartbeats per failsafe window |
 
-The 1C deadband is a starting guess. A 25W belt heating a large, slow thermal mass
-should produce long, lazy cycles; if the relay turns out to chatter, widen it.
+The deadband is 1.5C (widened from an initial 1C). A 25W belt heating a large, slow
+thermal mass produces long, lazy cycles; it has not caused relay chatter.
 
 ## How it works
 
@@ -107,7 +107,7 @@ SetOption85 1
 PowerOnState 0
 PulseTime1 700
 Rule1 ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON
-Rule2 ON Event#s2>30 DO Power1 off ENDON ON Event#s2<23.5 DO Power1 on ENDON ON Event#s2>25 DO Power1 off ENDON
+Rule2 ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>25 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON
 Rule1 1
 Rule2 1
 Restart 1
@@ -175,32 +175,50 @@ The gate is a **whitelist**, not a blacklist. Only a plausible value earns the r
 make a decision; everything else falls through to the safe state. This is deliberate,
 and the reason why is in the gotchas.
 
-### Plug Rule2 — hysteresis and cutoff
+### Plug Rule2 — hysteresis, cutoff, and heartbeat
 
 ```
-ON Event#s2>30 DO Power1 off ENDON
-ON Event#s2<23.5 DO Power1 on  ENDON
-ON Event#s2>25 DO Power1 off ENDON
+ON Event#s2>30   DO Backlog Var4 0; Power1 off ENDON
+ON Event#s2<23.5 DO Backlog Var4 1; Power1 on  ENDON
+ON Event#s2>25   DO Backlog Var4 0; Power1 off ENDON
+ON Event#s2>0    DO RuleTimer1 1 ENDON
+ON Rules#Timer=1 DO Event hb=%var4% ENDON
+ON Event#hb>0    DO Power1 on ENDON
 ```
+
+`Var4` is a **software latch**: `1` means "the belt should be heating", `0` means it
+should not. It is the memory that lets the deadband work without starving the failsafe
+(see below for why that matters).
 
 | Line | Meaning |
 |---|---|
-| `ON Event#s2>30 DO Power1 off` | Hard safety cutoff, checked before anything else. |
-| `ON Event#s2<23.5 DO Power1 on` | Too cold — heat. This also refreshes the `PulseTime` countdown (see below). |
-| `ON Event#s2>25 DO Power1 off` | Warm enough — stop. |
+| `ON Event#s2>30 DO Backlog Var4 0; Power1 off` | Hard safety cutoff, checked before anything else. Clears the latch and cuts power. Redundant with the `>25` line for *turning off*, but kept as a separate, explicit safety limit so tuning the setpoint can never accidentally disable it. |
+| `ON Event#s2<23.5 DO Backlog Var4 1; Power1 on` | Too cold — set the latch and heat. |
+| `ON Event#s2>25 DO Backlog Var4 0; Power1 off` | Warm enough — clear the latch and stop. |
+| `ON Event#s2>0 DO RuleTimer1 1` | **Every** valid reading arms a 1-second timer. (Temperature is always > 0 after the `>5` sanity gate, so this fires on every reading.) |
+| `ON Rules#Timer=1 DO Event hb=%var4%` | When that timer expires, emit a heartbeat event carrying the current latch value. The 1-second delay is essential: it lets the `Backlog Var4 ...` from the decision lines commit *before* the latch is read, avoiding a race. |
+| `ON Event#hb>0 DO Power1 on` | If the latch is set, re-issue `Power on`. This refreshes the `PulseTime` countdown (see below) without changing the relay if it is already on. |
 
-Between 23.5 and 25.0 **no rule fires at all**, and the relay simply keeps its current
-state. That gap *is* the deadband: it is what stops the relay chattering around the
-setpoint. A reading of 24.0 doing nothing is correct behaviour, not a bug.
+Between 23.5 and 25.0 **no on/off decision fires**, and the relay keeps its current state.
+That gap *is* the deadband: it is what stops the relay chattering around the setpoint. A
+reading of 24.0 doing nothing to the relay is correct. **But** the heartbeat lines still
+run on every reading, so while the belt is heating through the deadband the `PulseTime`
+countdown keeps being refreshed. This is the fix for a bug where the belt cut out every
+~10 minutes — see "The heartbeat starvation bug" in the gotchas.
 
-The off threshold was widened from 24.5 to 25.0 on 2026-07-26 to cut the number of
-relay cycles (about 13/day) as the weather cooled and the belt began running more often.
-A wider deadband means fewer, longer pulses for the same total heat. Because the glass
-probe leads the bulk liquid, letting the glass run a little warmer also nudges the liquid
-closer to the 24C target.
+Cooling back down does not re-fire the belt: once the `>25` line clears the latch, a
+reading of 24.9 on the way down leaves it cleared (`hb>0` is false), so the belt stays off
+until the temperature falls below 23.5. The latch does not survive a reboot — it comes
+back empty (0), so a power cut boots the belt off and keeps it off until a genuine
+below-23.5 reading, complementing `PowerOnState 0`.
 
-Rule1 and Rule2 are split because a single rule set is limited to 511 bytes, and
-because it keeps "is this reading real?" separate from "what should the heat do?".
+The off threshold was widened from 24.5 to 25.0 on 2026-07-26 to cut the number of relay
+cycles (about 13/day) as the weather cooled. A wider deadband means fewer, longer pulses
+for the same total heat. Because the glass probe leads the bulk liquid, letting the glass
+run a little warmer also nudges the liquid closer to the 24C target.
+
+Rule1 and Rule2 are split because a single rule set is limited to 511 bytes, and because
+it keeps "is this reading real?" separate from "what should the heat do?".
 
 ### The failsafe
 
@@ -216,13 +234,24 @@ means 600 seconds**. (Values 1–111 mean tenths of a second, which is why the o
 exists.)
 
 The behaviour that makes it a watchdog: **re-issuing `Power ON` while the relay is
-already on restarts the countdown.** So every temperature reading that says "heat"
-also refreshes the timer. As long as readings keep arriving, the countdown never
-expires. The moment they stop — dead sensor, dead WiFi, dead broker, crashed HA — the
-countdown runs out and the plug switches itself off.
+already on restarts the countdown.** The heartbeat lines in Rule2 do exactly that on
+every reading while the belt should be heating (whether the reading is below the on
+threshold or sitting in the deadband). As long as readings keep arriving, the countdown
+never expires. The moment they stop — dead sensor, dead WiFi, dead broker, crashed HA —
+the countdown runs out and the plug switches itself off.
 
 It is a dead-man's switch: the heat stays on only while something keeps actively
 asking for it.
+
+**What `PulseTime` does and does not protect against.** It is a *communication*
+watchdog: it fires when readings *stop*. It is **not** a thermal-runaway limit. If the
+sensor keeps producing plausible-but-wrong low readings — e.g. it falls off the vessel
+and measures cooler room air, or the belt is fitted outside the insulation so the glass
+never warms — the rule correctly says "heat", the heartbeat keeps arriving, and the belt
+stays on. Lengthening `PulseTime` would not help; the readings are valid, just wrong. A
+single-sensor thermostat cannot defend against its one sensor lying plausibly. The `>30`
+cutoff is a partial backstop, and physical mitigations (the insulation presses the probe
+against the glass so it cannot dangle) matter more here than any rule.
 
 `PulseTime` survives a reboot, and after a power cut the relay comes back **off** with
 the countdown at zero, waiting for a fresh reading.
@@ -356,6 +385,37 @@ devices.
 get **two** heartbeats per window, and a single dropped multicast packet risks a
 spurious cutout. 60s gives ten. If you ever lengthen `TelePeriod`, lengthen `PulseTime`
 to match.
+
+### The heartbeat starvation bug (a deadband can starve the failsafe)
+
+This one ran undetected for over a week and is the reason Rule2 looks the way it does.
+
+The failsafe (`PulseTime`) and the thermostat originally shared one signal: `Power on`.
+The heartbeat was only refreshed by the "too cold" line (`Event#s2<23.5 DO Power1 on`).
+That is fine while the belt is warming from below the setpoint — but the moment the
+temperature climbs into the deadband (23.5–25.0), **no rule fired**, so no `Power on` was
+issued, so the heartbeat stopped being refreshed *even though readings were still
+arriving every 60s*. After 600s the firmware cut the belt.
+
+The symptom was maddening: the belt appeared to "turn off at 24.5C" with **no rule
+trigger in the plug's log** — because it was the watchdog timing out, not a threshold.
+Widening the off threshold did nothing, because the belt never reached it; it timed out
+first. Every pulse was capped at ~10 minutes regardless of temperature. It only became
+visible when cooler weather made the heating phase long enough to sit in the deadband
+past the 600s window.
+
+The fix (deployed 2026-07-27): a software latch (`Var4`) remembers "the belt should be
+heating", and dedicated heartbeat lines re-issue `Power on` on **every** reading while
+the latch is set — refreshing the countdown through the deadband without re-triggering
+the relay. The lesson: **if a failsafe heartbeat is driven by a control rule, make sure
+the heartbeat still fires in the states where the control rule is deliberately silent.**
+A deadband is exactly such a state.
+
+Watch out for the evaluation-order race, too: the heartbeat reads the latch via
+`Event hb=%var4%`, and that `%var4%` must be expanded *after* the decision lines have
+committed their `Backlog Var4 ...`. Emitting the heartbeat through a 1-second `RuleTimer`
+guarantees this; firing it inline in the same reading-pass reads the stale latch and, at
+the off transition, cancels the power-off.
 
 ## Possible extensions
 
