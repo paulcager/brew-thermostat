@@ -7,9 +7,17 @@
 #   plug_var1    the last temperature the PLUG actually acted on (its Var1) —
 #                updates only when the sensor broadcasts, so it lags sensor_live
 #   relay        the plug's relay state, ON/OFF
-#   watts        the plug's measured load (belt draws ~30W on, 0W off) — ground
+#   watts        the plug's measured load (belt draws ~32W on, 0W off) — ground
 #                truth that the belt is really drawing current, not just the
-#                relay's claimed state. relay=ON with watts=0 means no load.
+#                relay's claimed state.
+#
+#                NOTE: watts=0 while relay=ON is NORMAL, not a fault. The belt has
+#                its own internal thermal cutout that self-cycles ~1-2 min on / ~1
+#                min off the whole time our relay holds it on. So expect watts to
+#                flip 32 -> 0 -> 32 even mid-heating-pulse. A genuine bad connection
+#                would differ: erratic/partial current and the temperature NOT
+#                still rising across the 0W stretch. See README "The belt has its
+#                own internal cutout".
 #
 # The sensor_live vs plug_var1 gap is the point: the plug's hysteresis decides
 # from plug_var1, not from what the sensor reads at that instant. Watching both

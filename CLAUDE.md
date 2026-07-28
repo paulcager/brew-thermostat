@@ -173,6 +173,11 @@ Learned from running it:
   with the bulk), then decays slowly for hours (whole vessel losing heat to the room).
 - Belt rewound from two wraps to one on ~2026-07-20 to lower watts/cm2 and avoid a hot
   spot; the rise-rate got gentler as intended (partly confounded by a cooler room).
+- The belt has its OWN internal thermal cutout. While our relay is ON it self-cycles
+  ~1min at 32W / ~1min at 0W. So `watts=0` with `relay=ON` is NORMAL — do not mistake it
+  for an intermittent connection fault (it looked exactly like one and cost a scare on
+  2026-07-28). Only visible if you sample faster than ~1min; Grafana's 30-60s steps alias
+  it to a flat 32W. See README "The belt has its own internal cutout".
 
 None of these needed a config change — re-tuning the physical heat delivery, the loop
 just adapts, because everything keys off the probe.

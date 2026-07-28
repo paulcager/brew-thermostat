@@ -417,6 +417,39 @@ committed their `Backlog Var4 ...`. Emitting the heartbeat through a 1-second `R
 guarantees this; firing it inline in the same reading-pass reads the stale latch and, at
 the off transition, cancels the power-off.
 
+### The belt has its own internal cutout — 0W with the relay ON is normal
+
+The brew belt contains its **own** thermal cutout (a bimetallic switch), independent of
+anything in this project. So while our relay is ON, the belt self-cycles: it draws its
+normal ~32W for roughly a minute, its internal cutout opens, it draws **0W for roughly a
+minute**, then closes again — repeating on a ~1–2 minute period for the whole time our
+relay holds it on. An owner review of the belt confirms it: *"It does turn itself on and
+off perhaps every few minutes."*
+
+This is **not a fault.** But it looks exactly like one, and it caused a genuine scare:
+- `watts` (or `Status 8` Current/Power) drops to a clean **0.000 A / 0 W** while `relay`
+  stays **ON**, and the `ENERGY.Today` counter **freezes** during those windows. That is
+  indistinguishable, from the electrical data alone, from an intermittent open circuit
+  (a failing lead or connection). The tell that it is the belt's cutout and not a fault:
+  the **glass temperature keeps rising** across the 0W stretch, and the current is a clean
+  full-on/full-off (0.125A / 0.000A), never a marginal in-between.
+- It is only visible if you sample **faster than the belt's cycle** — every few seconds.
+  Coarser sampling (the Grafana dashboard's 30–60s steps) aliases the cycling into what
+  looks like a steady 32W, which is why we thought the belt drew constant power for weeks.
+
+Consequence for the design: there are effectively **two thermostats in series** — the
+belt's crude internal one (cycling on its own surface temperature, ~1 min period) and
+ours (cycling on the glass probe, hours-long period). They do not fight: ours gates the
+mains supply and sets the setpoint; the belt's cutout just makes delivery gentler and
+self-limiting within each of our ON windows. It also partly explains the "hot fast then
+cooler while powered" feel of the belt — that is partly the glass-vs-liquid gradient and
+partly the belt genuinely cycling its own output.
+
+If you ever *do* suspect a real intermittent connection (arcing at a joint is a genuine
+mains hazard), the distinguishing check is: a real open circuit will **not** show the
+temperature still climbing, and will often show erratic/partial current rather than a
+clean 0.000A on a regular ~1-minute rhythm.
+
 ## Possible extensions
 
 - **Cooling.** A second plug in the same device group could drive a fan, using a
