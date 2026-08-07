@@ -1,7 +1,7 @@
 # brew-thermostat — captured working configuration
-# 2026-07-27T12:54:31+01:00
-# Heartbeat-starvation bug fixed 2026-07-27: Rule2 now has a latch (Var4) + heartbeat lines.
-# Off threshold 25.0C. PulseTime is a COMMS watchdog, not a thermal limit.
+# 2026-08-07T14:17:13+01:00
+# Off threshold 26.0C (raised from 25.0 on 2026-08-07). Deadband 23.5-26.0.
+# Rule2 has latch (Var4) + heartbeat lines. PulseTime is a COMMS watchdog, not thermal.
 
 ## SENSOR  temp-probe  192.168.0.64  (ESP32, Tasmota 15.5.0, Berry available)
 $ Rule1
@@ -19,7 +19,7 @@ $ TelePeriod
 $ Rule1
 {"Rule1":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":140,"Free":371,"Rules":"ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON"}}
 $ Rule2
-{"Rule2":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":264,"Free":247,"Rules":"ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>25 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON"}}
+{"Rule2":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":264,"Free":247,"Rules":"ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>26 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON"}}
 $ Rule3
 {"Rule3":{"State":"OFF","Once":"OFF","StopOnError":"OFF","Length":0,"Free":511,"Rules":""}}
 $ DevGroupName1
@@ -37,4 +37,4 @@ $ SetOption19
 
 # Var1 = last temp seen (observability). Var4 = heartbeat latch (load-bearing).
 # DevGroupShare reports in HEX - 64,64 reads back as 40.
-# PulseTime1 700 = 600 seconds (values 112..64900 are seconds offset by 100).
+# Belt has its own internal cutout: watts cycle ~1min on/off even mid-pulse (normal).

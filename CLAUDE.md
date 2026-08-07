@@ -155,7 +155,7 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 
 Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
 Steady state is ~10 min of heating every 2-3 hours; the belt is idle ~90% of the time,
-so it has ample headroom. The deadband (now 1.5C) does NOT cause relay chatter.
+so it has ample headroom. The deadband (now 2.5C, on 23.5 / off 26.0) does NOT cause chatter.
 
 On 2026-07-27 fixed a significant latent bug: the `PulseTime` heartbeat starved whenever
 the belt was heating in the deadband, cutting the belt every ~10 min regardless of

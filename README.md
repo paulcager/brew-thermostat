@@ -13,7 +13,7 @@ itself **off** if the readings ever stop arriving.
 Verified working on real hardware, and driving the brew belt against a live vessel
 since 2026-07-18. In steady state the belt pulses for ~10 minutes roughly every 2-3
 hours to hold the vessel near setpoint, cutting out correctly at the off threshold. The
-deadband (now 1.5C) does not cause relay chatter.
+deadband (now 2.5C) does not cause relay chatter.
 
 Note the probe reads the glass ~8cm above the belt, and the glass leads the bulk liquid
 by around 1C — so the liquid runs slightly below the 24C target. This is expected and
@@ -41,14 +41,14 @@ Broker: `192.168.0.2:1883`, user `tasmota`. Home Assistant runs on the same host
 |---|---|---|
 | Target | 24C | Ideal kombucha fermentation |
 | Heat on below | 23.5C | Target minus half the deadband |
-| Heat off above | 25.0C | Widened from 24.5C on 2026-07-26 to reduce relay cycling |
+| Heat off above | 26.0C | Raised 24.5→25.0 (2026-07-26), then 25.0→26.0 (2026-08-07) |
 | Hard cutoff | 30C | Well clear of ~35C, which kills the SCOBY |
 | Sanity floor | 5C | Anything at or below this is treated as a broken sensor |
 | Sanity ceiling | 40C | Anything above is treated as a broken sensor |
 | Failsafe timeout | 600s (10 min) | No readings for 10 minutes ⇒ heat off |
 | Sensor telemetry | 60s | Ten heartbeats per failsafe window |
 
-The deadband is 1.5C (widened from an initial 1C). A 25W belt heating a large, slow
+The deadband is 2.5C (widened from an initial 1C in stages). A 25W belt heating a large, slow
 thermal mass produces long, lazy cycles; it has not caused relay chatter.
 
 ## How it works
@@ -107,7 +107,7 @@ SetOption85 1
 PowerOnState 0
 PulseTime1 700
 Rule1 ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON
-Rule2 ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>25 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON
+Rule2 ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>26 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON
 Rule1 1
 Rule2 1
 Restart 1
@@ -180,7 +180,7 @@ and the reason why is in the gotchas.
 ```
 ON Event#s2>30   DO Backlog Var4 0; Power1 off ENDON
 ON Event#s2<23.5 DO Backlog Var4 1; Power1 on  ENDON
-ON Event#s2>25   DO Backlog Var4 0; Power1 off ENDON
+ON Event#s2>26   DO Backlog Var4 0; Power1 off ENDON
 ON Event#s2>0    DO RuleTimer1 1 ENDON
 ON Rules#Timer=1 DO Event hb=%var4% ENDON
 ON Event#hb>0    DO Power1 on ENDON
@@ -194,28 +194,30 @@ should not. It is the memory that lets the deadband work without starving the fa
 |---|---|
 | `ON Event#s2>30 DO Backlog Var4 0; Power1 off` | Hard safety cutoff, checked before anything else. Clears the latch and cuts power. Redundant with the `>25` line for *turning off*, but kept as a separate, explicit safety limit so tuning the setpoint can never accidentally disable it. |
 | `ON Event#s2<23.5 DO Backlog Var4 1; Power1 on` | Too cold — set the latch and heat. |
-| `ON Event#s2>25 DO Backlog Var4 0; Power1 off` | Warm enough — clear the latch and stop. |
+| `ON Event#s2>26 DO Backlog Var4 0; Power1 off` | Warm enough — clear the latch and stop. |
 | `ON Event#s2>0 DO RuleTimer1 1` | **Every** valid reading arms a 1-second timer. (Temperature is always > 0 after the `>5` sanity gate, so this fires on every reading.) |
 | `ON Rules#Timer=1 DO Event hb=%var4%` | When that timer expires, emit a heartbeat event carrying the current latch value. The 1-second delay is essential: it lets the `Backlog Var4 ...` from the decision lines commit *before* the latch is read, avoiding a race. |
 | `ON Event#hb>0 DO Power1 on` | If the latch is set, re-issue `Power on`. This refreshes the `PulseTime` countdown (see below) without changing the relay if it is already on. |
 
-Between 23.5 and 25.0 **no on/off decision fires**, and the relay keeps its current state.
+Between 23.5 and 26.0 **no on/off decision fires**, and the relay keeps its current state.
 That gap *is* the deadband: it is what stops the relay chattering around the setpoint. A
 reading of 24.0 doing nothing to the relay is correct. **But** the heartbeat lines still
 run on every reading, so while the belt is heating through the deadband the `PulseTime`
 countdown keeps being refreshed. This is the fix for a bug where the belt cut out every
 ~10 minutes — see "The heartbeat starvation bug" in the gotchas.
 
-Cooling back down does not re-fire the belt: once the `>25` line clears the latch, a
-reading of 24.9 on the way down leaves it cleared (`hb>0` is false), so the belt stays off
+Cooling back down does not re-fire the belt: once the `>26` line clears the latch, a
+reading of 25.9 on the way down leaves it cleared (`hb>0` is false), so the belt stays off
 until the temperature falls below 23.5. The latch does not survive a reboot — it comes
 back empty (0), so a power cut boots the belt off and keeps it off until a genuine
 below-23.5 reading, complementing `PowerOnState 0`.
 
-The off threshold was widened from 24.5 to 25.0 on 2026-07-26 to cut the number of relay
-cycles (about 13/day) as the weather cooled. A wider deadband means fewer, longer pulses
-for the same total heat. Because the glass probe leads the bulk liquid, letting the glass
-run a little warmer also nudges the liquid closer to the 24C target.
+The off threshold has been raised twice: 24.5 → 25.0 on 2026-07-26 to cut relay cycles
+(about 13/day) as the weather cooled, then 25.0 → 26.0 on 2026-08-07. The second change
+was because the glass probe reads high on each heating spike and cuts the belt while the
+liquid is still near the bottom of the range (~23–23.5C on a 2L batch in a ~16C room);
+letting the glass run to 26 lifts the liquid trough a little. A wider deadband (now 2.5C)
+also means fewer, longer pulses. The glass peak of ~26 stays well clear of the 30C cutoff.
 
 Rule1 and Rule2 are split because a single rule set is limited to 511 bytes, and because
 it keeps "is this reading real?" separate from "what should the heat do?".
