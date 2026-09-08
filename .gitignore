@@ -1,3 +1,4 @@
 .idea/
 .grafana-token
 .env
+temps.log*

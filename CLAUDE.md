@@ -150,6 +150,10 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 - Capture config snapshots to `config/captured-config.txt`.
 - Rule text in docs should be annotated. Paul explicitly asked for command-by-command
   explanations; a bare rule string is not adequate documentation here.
+- `log-temps.sh` polls sensor/plug every ~10s (time, sensor, plug Var1, relay, watts) to
+  `temps.log` (gitignored). This fast sampling is the tool that reveals what Grafana's
+  30-60s steps alias away — the belt's ~1min self-cutout, the exact value at a switch-off.
+  Reach for it, not the dashboard, when debugging cycle-level behaviour.
 
 ## Current state
 
