@@ -55,7 +55,7 @@ fetch() {  # host  cmnd  jq-filter
   curl -s --max-time 4 "http://$1/cm?cmnd=$2" 2>/dev/null | jq -r "$3 // \"?\"" 2>/dev/null || echo "?"
 }
 
-header=$'time\tsensor_live\tplug_var1\trelay\twatts'
+header=$'time    \tsensor\tplug\trelay\twatts'
 echo "$header"
 # Only add a header to the file if it's new/empty.
 [ -s "$OUT" ] || echo "$header" >> "$OUT"
