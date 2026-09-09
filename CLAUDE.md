@@ -97,6 +97,15 @@ don't "tidy" these into breakage:
 - **`SetOption19` stays OFF.** It is correct off for HA's native Tasmota integration.
   Turning it on switches to deprecated legacy MQTT discovery — do not enable it as a
   "fix" for a Home Assistant issue.
+- **A freshly-flashed Tasmota (>=15.6) needs `SetOption128 1` before the HTTP API works.**
+  Without it, `/cm?cmnd=...` calls with no `Referer` header (i.e. all `curl`/script access)
+  are silently denied — the device serves its web UI fine but every command returns an
+  empty reply, and the console logs `HTP: Referer '' denied. Use 'SO128 1' for HTTP API`.
+  The existing devices already have it ON (set long ago), which is why they answer freely;
+  a new/replacement device comes up with it OFF at the firmware default. Also needs
+  `WebServer 2` (admin mode) enabled. This cost real time on 2026-09-09 setting up the
+  ESP32-C3. It must be set from the device's own console (you can't reach `/cm` to set it
+  remotely until it is set — chicken-and-egg).
 
 ## Rules engine: read this before writing a rule
 
