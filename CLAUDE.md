@@ -138,12 +138,17 @@ Never leave a device with a shortened `PulseTime` or a disabled rule. Restore
 
 ## Verifying real behaviour
 
-The plug meters its own load, so you can confirm the belt is genuinely drawing power
+The plug meters its own load, so you can confirm the heater is genuinely drawing power
 rather than trusting the relay state:
 
 ```bash
-curl -s "http://192.168.0.58/cm?cmnd=Status%208"   # ~25W belt on, 0W off
+curl -s "http://192.168.0.58/cm?cmnd=Status%208"   # heater on / 0W off
 ```
+
+NOTE: the live heater is now the ~22W seedling mat (constant power, no cutout), not the
+old 25W belt. So watts should be a steady ~22W while on — the belt's ~1min on/off
+self-cycling described below does NOT apply to the mat. Much of README still says "belt"
+as accurate history; the multi-loop rebuild will have both a mat and a belt.
 
 A healthy loop: the plug's `Var1` tracks the sensor's temperature (a one-reading lag is
 normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping back to
@@ -166,13 +171,53 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
 
 ## How it's used
 
-Two-jar setup: two ~3L jars, start days offset by a week, each fermenting ~2 weeks. Only
-the **week-1 jar** sits under the belt; the week-2 jar coasts at ambient (by then the
-culture is established and acidic enough to tolerate cooler). So the thermostat always
-regulates a young, actively-fermenting ~3L batch. Every ~week the jars rotate, putting a
-cold fresh jar under the belt — expect a brief discontinuity in the cycle pattern then;
-it is a jar swap, not a fault. (The 2L batch seen around 2026-08-07 was a one-off bootstrap
-from a new culture; normal batches are 3L. Setpoints were left as tuned for that batch.)
+Two-jar setup: two ~3L jars, start days offset by a week, each fermenting ~2 weeks. Jars
+are physically labelled A/B/C (three exist so a spare eases decanting starter liquid;
+only two ferment at once). Every ~week the week-2 jar leaves for bottling, the week-1 jar
+becomes week-2, and a new jar enters as week-1. Expect a brief discontinuity in the cycle
+pattern at each rotation — it is a jar swap, not a fault. (The 2L batch seen around
+2026-08-07 was a one-off bootstrap from a new culture; normal batches are 3L. Setpoints
+were left as tuned for that batch.)
+
+HEATING CHANGED 2026-09: the single 25W brew belt was replaced by a ~22W **seedling mat**
+(gentler, more uniform, constant power, NO internal cutout — unlike the belt). The mat
+does not quite wrap the glass (~1cm short), and the probe sits in that uncovered gap so it
+is not reading the hot element directly. The belt is being repurposed to heat the *second*
+jar (see planned architecture below). Insulation is still a work in progress.
+
+## Planned architecture (2-loop, not yet built as of 2026-09-09)
+
+Goal: heat BOTH jars independently. New parallel rig, built and tested in isolation, then
+hot-swapped for the current single-loop setup (which stays configured as documented
+rollback). Nothing below is live yet.
+
+- **1 new ESP32-C3 sensor board** `temp-probe-2A-98` (192.168.0.91, Tasmota 15.6.0, Berry
+  present, MQTT up, SO128 on). Three DS18B20 on one 1-Wire bus (GPIO TBD): `mat`, `belt`,
+  `ambient`. Third is future-extensibility / ambient reference for now. NOT yet soldered.
+- **2 new Tasmota plugs** (identical to current, ESP8285/no-Berry expected): one drives the
+  mat, one the belt. Each needs its OWN latch + heartbeat + `PulseTime` (all the
+  heartbeat-starvation lessons apply per plug).
+- **Device group `brew2`** (deliberately NOT `brew` — isolates the test rig from the live
+  loop during parallel running; `brew2` = v2 of the system, leaves room for `brew3`).
+- **Event names are STATION-based, not jar-based:** `mat`, `belt`, `ambient`. Jar identity
+  (A/B/C) churns weekly and would clash with the physical labels and lie after rotation.
+  Station names never lie: `mat` always means "the jar currently under the mat".
+- **Sensors stay with STATIONS, not jars** (decided over the software-remap alternative).
+  Probes get physical labels ("mat sensor" etc). At rotation you physically move the mat
+  and belt probes onto the jars now at those stations; `ambient` never moves; NO rule edit
+  ever. This keeps Grafana series continuous (a `mat` line always means the mat station)
+  and makes the weekly step self-checking (labelled probe -> labelled station). The moment
+  of risk is a probe left dangling/mis-seated mid-swap — reseat carefully, glance at the
+  dashboard after; the `>30` cutoff and insulation are partial guards.
+- **`DS18Alias`** pins each ROM ID to a fixed station name so index order (`-1`/`-2`) can
+  never silently reorder and cross a sensor to the wrong station's heater.
+- One-plug bodge (both heaters off one plug) was considered and rejected: the two jars are
+  at different fermentation stages and want different heat, so each needs its own loop.
+
+Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confirm, pin
+with DS18Alias; (2) design+isolation-test each plug's rules (relay driving nothing,
+synthetic injection, sensor silenced, BOTH failsafe properties per plug); (3) integrate
+heaters, watch real cycles; (4) hot-swap; (5) README rework for the multi-loop design.
 
 ## Current state
 
