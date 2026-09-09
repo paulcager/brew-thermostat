@@ -20,6 +20,12 @@ by around 1C — so the liquid runs slightly below the 24C target. This is expec
 fine for kombucha (it brews well from 21C); see the dashboard notes if you want to
 compensate.
 
+The brewing runs as two ~3L jars with start days offset by a week, each fermenting about
+two weeks. Only the week-1 jar is heated (under the belt); the second-week jar coasts at
+ambient. So the thermostat always regulates a young, actively-fermenting jar, and the
+cycle pattern shows a brief discontinuity roughly weekly when the jars rotate and a cold
+fresh jar goes under the belt.
+
 ## Hardware
 
 | Role | Name | IP | Chip | Firmware | Notes |

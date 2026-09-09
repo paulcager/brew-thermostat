@@ -155,6 +155,16 @@ normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping 
   30-60s steps alias away — the belt's ~1min self-cutout, the exact value at a switch-off.
   Reach for it, not the dashboard, when debugging cycle-level behaviour.
 
+## How it's used
+
+Two-jar setup: two ~3L jars, start days offset by a week, each fermenting ~2 weeks. Only
+the **week-1 jar** sits under the belt; the week-2 jar coasts at ambient (by then the
+culture is established and acidic enough to tolerate cooler). So the thermostat always
+regulates a young, actively-fermenting ~3L batch. Every ~week the jars rotate, putting a
+cold fresh jar under the belt — expect a brief discontinuity in the cycle pattern then;
+it is a jar swap, not a fault. (The 2L batch seen around 2026-08-07 was a one-off bootstrap
+from a new culture; normal batches are 3L. Setpoints were left as tuned for that batch.)
+
 ## Current state
 
 Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
