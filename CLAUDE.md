@@ -227,10 +227,34 @@ rollback). Nothing below is live yet.
 
 Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confirm, map
 ROM IDs to stations [done 2026-09-10 — board awaits a project box before install]; (1b)
-write the Berry broadcast script (read each probe by ROM ID, send as mat/belt/ambient);
-(2) design+isolation-test each plug's rules (relay driving nothing, synthetic injection,
-sensor silenced, BOTH failsafe properties per plug); (3) integrate heaters, watch real
-cycles; (4) hot-swap; (5) README rework for the multi-loop design.
+Berry broadcast script [done 2026-09-10 — `autoexec.be`, see below]; (2) design+
+isolation-test each plug's rules (relay driving nothing, synthetic injection, sensor
+silenced, BOTH failsafe properties per plug); (3) integrate heaters, watch real cycles;
+(4) hot-swap; (5) README rework for the multi-loop design.
+
+The sensor broadcast script is `autoexec.be` (in the repo; uploaded to the C3 via the
+web file-manager `/ufsu`, auto-runs at boot). It reads all three DS18B20 by ROM ID and
+broadcasts each as a `brew2` event `mat`/`belt`/`ambient`. Berry gotchas learned building
+it (2026-09-10), all verified on the live board:
+- **Telemetry trigger is `Tele#DS18B20-1#Temperature`.** `Tele-...` (the old Rules-era
+  prefix) never fires on this 15.6 build; the bare `DS18B20-1#Temperature` fires on every
+  raw read (~1.4 Hz — a broadcast flood), NOT once per TelePeriod. Only `Tele#` gives the
+  per-TelePeriod cadence we want.
+- **A self-rescheduling Berry timer (`set_timer` re-arming itself) did NOT survive reboot
+  reliably** — it ran once at boot then stopped. Hooking the telemetry event instead means
+  Tasmota's own cycle drives it; nothing to re-arm. Broadcast rate = TelePeriod (60s).
+- **`import string` is required** before `string.format` — otherwise `load()` fails with
+  "'string' undeclared" and the whole script silently doesn't load (`load()` returns false).
+- Berry lambdas are expression-only: `/-> foo()` is fine, `/-> (x=x+1)` is a syntax error.
+  Use a named `def` for anything with a statement body.
+- Read sensors with `tasmota.read_sensors()` (returns the sensor JSON string); parse with
+  `json.load`; each `DS18B20-N` entry is an instance with `.contains('Id')` / `['Id']` /
+  `['Temperature']`. Match by `Id`, never by the `-N` index.
+- A missing/failed sensor broadcasts NOTHING for that station (guarded by the real-number
+  check), so that station's plug gets no heartbeat and its PulseTime failsafe trips — which
+  is the correct fail-safe behaviour, per-station.
+- Multi-line Berry can't be pasted as one space-joined line via `Br ...` (syntax errors on
+  `def`/`end`); develop in a file and `load()` it, or upload and reboot.
 
 ## Current state
 
