@@ -27,13 +27,14 @@ Current single-loop rig (LIVE, group `brew`):
 
 New 2-loop rig being built (group `brew2`, see "Planned architecture"):
 - Sensor `temp-probe-2A-98` — 192.168.0.91 (ESP32-C3, has Berry, 3x DS18B20)
-- Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry). NOTE: this is the LocalBytes
-  plug formerly named `desk-lamp`; it has been repurposed for this project — it is now
-  ours to configure, NOT off-limits.
+- Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry; formerly `desk-lamp`)
+- Belt plug `plug-belt` — 192.168.0.57 (ESP8285, no Berry; formerly `tasmota1`)
+  Both plugs were repurposed for this project — they are ours to configure, NOT off-limits.
 
-**Other Tasmota devices on this LAN are in use — do not send commands to them:** `.57`,
-`.62`, `.53`, `.52`, `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
-(`.32` was `desk-lamp` in the original scan but is now `plug-mat`, part of this project.)
+**Other Tasmota devices on this LAN are in use — do not send commands to them:** `.62`,
+`.53`, `.52`, `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
+(`.32` and `.57` were `desk-lamp`/`tasmota1` in the original scan but are now the mat and
+belt plugs, part of this project.)
 
 Reading state is free. Before *changing* device state, consider whether a batch is
 fermenting — an unexpected heat cutout or an unwanted heating cycle affects a living
@@ -237,17 +238,19 @@ Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confir
 ROM IDs to stations [done 2026-09-10 — board awaits a project box before install]; (1b)
 Berry broadcast script [done 2026-09-10 — `autoexec.be`, see below]; (2) design+
 isolation-test each plug's rules (relay driving nothing, synthetic injection, sensor
-silenced, BOTH failsafe properties per plug) [MAT PLUG done 2026-09-10 — `plug-mat`
-192.168.0.32, in brew2, rules verified end-to-end; BELT plug still TODO, same rules keyed
-to event `belt`]; (3) integrate heaters, watch real cycles; (4) hot-swap; (5) README
-rework for the multi-loop design.
+silenced, BOTH failsafe properties per plug) [DONE 2026-09-10 — both plugs verified
+end-to-end]; (3) integrate heaters, watch real cycles [TODO — heaters not yet on the new
+plugs]; (4) hot-swap; (5) README rework for the multi-loop design.
 
-Mat plug config (192.168.0.32, ESP8285/no-Berry, group brew2, verified 2026-09-10):
-Rule1 = `ON Event#mat DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO
-Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON`; Rule2 = the standard latch+
-heartbeat (on<23.5 / off>26 / cutoff>30, Var4 latch, RuleTimer1 heartbeat) — identical to
-the live plug's Rule2 but triggered by the `mat`->s1->s2 chain. PulseTime1 700,
-PowerOnState 0. The belt plug will be the same with Rule1 keyed to `Event#belt`.
+Both plugs (ESP8285/no-Berry, group brew2, verified 2026-09-10):
+- Mat plug `plug-mat` 192.168.0.32 (formerly `desk-lamp`) — Rule1 keyed to `Event#mat`.
+- Belt plug `plug-belt` 192.168.0.57 (formerly `tasmota1`) — Rule1 keyed to `Event#belt`.
+Each: Rule1 = `ON Event#<station> DO Backlog Var1 %value%; Event s1=%value% ENDON ON
+Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON`; Rule2 = the
+standard latch+heartbeat (on<23.5 / off>26 / cutoff>30, Var4 latch, RuleTimer1 heartbeat),
+identical across mat/belt/live — only Rule1's trigger event differs. PulseTime1 700,
+PowerOnState 0 on both. Verified: 3 devices in brew2 (C3 + 2 plugs), each plug tracks its
+OWN station with no cross-talk, both heartbeats refresh, both failsafe properties hold.
 
 The sensor broadcast script is `autoexec.be` (in the repo; uploaded to the C3 via the
 web file-manager `/ufsu`, auto-runs at boot). It reads all three DS18B20 by ROM ID and
