@@ -21,11 +21,19 @@ official Tasmota docs. They were expensive to establish. Do not re-derive them.
 Every command in this repo targets **real devices on Paul's home network**, and the plug
 switches a **mains heater** that will sit against a live fermentation vessel.
 
+Current single-loop rig (LIVE, group `brew`):
 - Sensor `temp-probe` — 192.168.0.64 (ESP32, has Berry)
 - Plug `tasmota2` — 192.168.0.58 (ESP8285, **no Berry** — plug logic must use Rules)
 
-**Other Tasmota devices on this LAN are in use.** Do not send commands to `.57`, `.62`,
-`.32`, `.53`, `.52`, or `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
+New 2-loop rig being built (group `brew2`, see "Planned architecture"):
+- Sensor `temp-probe-2A-98` — 192.168.0.91 (ESP32-C3, has Berry, 3x DS18B20)
+- Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry). NOTE: this is the LocalBytes
+  plug formerly named `desk-lamp`; it has been repurposed for this project — it is now
+  ours to configure, NOT off-limits.
+
+**Other Tasmota devices on this LAN are in use — do not send commands to them:** `.57`,
+`.62`, `.53`, `.52`, `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
+(`.32` was `desk-lamp` in the original scan but is now `plug-mat`, part of this project.)
 
 Reading state is free. Before *changing* device state, consider whether a batch is
 fermenting — an unexpected heat cutout or an unwanted heating cycle affects a living
