@@ -237,8 +237,17 @@ Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confir
 ROM IDs to stations [done 2026-09-10 — board awaits a project box before install]; (1b)
 Berry broadcast script [done 2026-09-10 — `autoexec.be`, see below]; (2) design+
 isolation-test each plug's rules (relay driving nothing, synthetic injection, sensor
-silenced, BOTH failsafe properties per plug); (3) integrate heaters, watch real cycles;
-(4) hot-swap; (5) README rework for the multi-loop design.
+silenced, BOTH failsafe properties per plug) [MAT PLUG done 2026-09-10 — `plug-mat`
+192.168.0.32, in brew2, rules verified end-to-end; BELT plug still TODO, same rules keyed
+to event `belt`]; (3) integrate heaters, watch real cycles; (4) hot-swap; (5) README
+rework for the multi-loop design.
+
+Mat plug config (192.168.0.32, ESP8285/no-Berry, group brew2, verified 2026-09-10):
+Rule1 = `ON Event#mat DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO
+Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON`; Rule2 = the standard latch+
+heartbeat (on<23.5 / off>26 / cutoff>30, Var4 latch, RuleTimer1 heartbeat) — identical to
+the live plug's Rule2 but triggered by the `mat`->s1->s2 chain. PulseTime1 700,
+PowerOnState 0. The belt plug will be the same with Rule1 keyed to `Event#belt`.
 
 The sensor broadcast script is `autoexec.be` (in the repo; uploaded to the C3 via the
 web file-manager `/ufsu`, auto-runs at boot). It reads all three DS18B20 by ROM ID and
@@ -251,6 +260,19 @@ it (2026-09-10), all verified on the live board:
 - **A self-rescheduling Berry timer (`set_timer` re-arming itself) did NOT survive reboot
   reliably** — it ran once at boot then stopped. Hooking the telemetry event instead means
   Tasmota's own cycle drives it; nothing to re-arm. Broadcast rate = TelePeriod (60s).
+- **Device-group Event items (item 192) are TRANSIENT — three sent back-to-back collide
+  and are silently dropped.** This was the single worst bug of the 2-loop build (2026-09-10,
+  ~an hour). Symptom: the plug's Var1 never updated from the auto broadcast, even though
+  the C3's MQTT log showed all three DevGroupSend commands executing every 60s and
+  `DevGroupStatus` showed the group fully sequence-synced. A SINGLE manual DevGroupSend
+  always landed; the tight-loop burst of 3 (mat/belt/ambient) always lost them. Unlike
+  power/light state (which is synced/retransmitted-until-acked), an Event is fire-and-forget
+  — if the receiver isn't ready in that instant it's gone, and rapid succession makes that
+  the norm. FIX: stagger the sends ~300ms apart via `tasmota.set_timer(slot*300, def() ...`
+  rather than a tight for-loop. Verified: staggered => all three land reliably across
+  reboots. If you add a 4th station later, keep the stagger. Diagnostic that cracked it:
+  watch the RECEIVER's own stat/.../RESULT — silence there means the event never arrived,
+  vs the rule firing but not updating.
 - **`import string` is required** before `string.format` — otherwise `load()` fails with
   "'string' undeclared" and the whole script silently doesn't load (`load()` returns false).
 - Berry lambdas are expression-only: `/-> foo()` is fine, `/-> (x=x+1)` is a syntax error.
