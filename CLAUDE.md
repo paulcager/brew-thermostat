@@ -185,15 +185,26 @@ does not quite wrap the glass (~1cm short), and the probe sits in that uncovered
 is not reading the hot element directly. The belt is being repurposed to heat the *second*
 jar (see planned architecture below). Insulation is still a work in progress.
 
-## Planned architecture (2-loop, not yet built as of 2026-09-09)
+## Planned architecture (2-loop, in progress — sensors built, not yet live)
 
 Goal: heat BOTH jars independently. New parallel rig, built and tested in isolation, then
 hot-swapped for the current single-loop setup (which stays configured as documented
 rollback). Nothing below is live yet.
 
 - **1 new ESP32-C3 sensor board** `temp-probe-2A-98` (192.168.0.91, Tasmota 15.6.0, Berry
-  present, MQTT up, SO128 on). Three DS18B20 on one 1-Wire bus (GPIO TBD): `mat`, `belt`,
-  `ambient`. Third is future-extensibility / ambient reference for now. NOT yet soldered.
+  present, MQTT up, SO128 on). Three DS18B20 soldered on one 1-Wire bus on **GPIO5**
+  (component DS18x20/1312, single 4.7k pull-up to 3V3). All three confirmed reporting and
+  stable 2026-09-10. ROM ID -> station mapping (verified by warming each probe and watching
+  which ID rose; physical labels attached to match):
+    - `000000212DD2` -> **mat**
+    - `00000021A246` -> **belt**
+    - `000000C97887` -> **ambient**
+  NOTE: `DS18Alias`/`DS18Sens` are NOT compiled into this build (both return Unknown). The
+  reported DS18B20-1/2/3 index order happens to match ROM-ID sort order and is stable while
+  these exact 3 sensors stay on the bus, but DO NOT rely on index — bind by ROM ID. Berry
+  is present, so the sensor-side plan is a Berry script that reads each probe BY ROM ID and
+  broadcasts it under its station event name (mat/belt/ambient). This is more robust than
+  index-based Rules and the reason the ROM-ID table above is load-bearing.
 - **2 new Tasmota plugs** (identical to current, ESP8285/no-Berry expected): one drives the
   mat, one the belt. Each needs its OWN latch + heartbeat + `PulseTime` (all the
   heartbeat-starvation lessons apply per plug).
@@ -214,10 +225,12 @@ rollback). Nothing below is live yet.
 - One-plug bodge (both heaters off one plug) was considered and rejected: the two jars are
   at different fermentation stages and want different heat, so each needs its own loop.
 
-Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confirm, pin
-with DS18Alias; (2) design+isolation-test each plug's rules (relay driving nothing,
-synthetic injection, sensor silenced, BOTH failsafe properties per plug); (3) integrate
-heaters, watch real cycles; (4) hot-swap; (5) README rework for the multi-loop design.
+Build order: (0) new board on API+Berry+MQTT [done]; (1) solder 3 probes, confirm, map
+ROM IDs to stations [done 2026-09-10 — board awaits a project box before install]; (1b)
+write the Berry broadcast script (read each probe by ROM ID, send as mat/belt/ambient);
+(2) design+isolation-test each plug's rules (relay driving nothing, synthetic injection,
+sensor silenced, BOTH failsafe properties per plug); (3) integrate heaters, watch real
+cycles; (4) hot-swap; (5) README rework for the multi-loop design.
 
 ## Current state
 
