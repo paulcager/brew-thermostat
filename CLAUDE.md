@@ -314,6 +314,56 @@ it (2026-09-10), all verified on the live board:
 - Multi-line Berry can't be pasted as one space-joined line via `Br ...` (syntax errors on
   `def`/`end`); develop in a file and `load()` it, or upload and reboot.
 
+## PROPOSED redesign: move control logic into Berry (NOT built — design note only)
+
+Motivation (Paul, 2026-09-11): the plug-side Rules are necessarily cramped and hard to
+reason about, and have caused most of this project's bugs (the `<`-parses-junk trap, the
+deadband heartbeat starvation, the RuleTimer latch race, the plug-to-plug event leak). The
+ESP32-C3 sensor has full Berry and already reads every temperature — so it can make the
+decision in readable code, and the plug can become almost brainless. This is a direction
+to take WHEN we choose to; nothing below is implemented.
+
+Principle Paul set: **keep it simple and obvious.** The plug keeps ONLY the `PulseTime`
+failsafe — "no command for 10 min => turn off." It does NOT get a temperature cutoff or
+any hysteresis. The plug never reasons about temperature at all; it just obeys on/off and
+dies on silence. The 30C hard cutoff does not disappear — it MOVES into Berry as one more
+`if` alongside the rest of the decision.
+
+Proposed shape:
+- **Berry on the C3 decides.** It already has mat/belt/ambient. A readable function per
+  station: sanity-reject implausible readings, hard-cutoff >30, hysteresis (on <23.5 /
+  off >26 with the in-deadband "leave as-is"). Real if/elif, variables, comments — versus
+  the current 6-line event chain.
+- **Plug obeys a pre-decided command, not a temperature.** Berry broadcasts a DECISION
+  (e.g. event `belt_cmd=on` / `belt_cmd=off`), not a temperature. Preferred over sending
+  raw `Power` because (a) it reuses the transient-Event transport we already understand and
+  the `64,0` leak fix still applies, and (b) `Power` is a *synced* device-group item with
+  different (unverified) two-plug semantics. Plug rule becomes trivial:
+  `ON Event#belt_cmd=on DO Power1 on ENDON  ON Event#belt_cmd=off DO Power1 off ENDON`.
+- **Failsafe unchanged in behaviour.** `PulseTime1 700` stays on the plug. Every "on"
+  command refreshes it exactly as the heartbeat does now; every reading cycle that decides
+  "stay on" must re-send "on" to keep feeding it (so Berry sends on every cycle while
+  heating, not just on the on-edge — same lesson as the deadband heartbeat bug, but now
+  in legible Berry). Silence (C3 dead / WiFi down / Berry errored) => no commands =>
+  PulseTime trips => heat off. Identical dead-man's-switch property, just a different
+  sender.
+
+Accepted trade-off: this centralises the "brain" in the C3. A DEAD C3 still fails safe
+(PulseTime). A C3 running BUGGY logic could drive a plug wrongly, and — per Paul's choice —
+there is deliberately NO independent plug-side temperature backstop; correctness rests on
+the Berry logic (which, being readable and unit-testable, is the point). PulseTime only
+guards silence, not wrong-but-live commands.
+
+Gotchas this retires (plug side): the `s1/s2` event chain, the `>`-only sanity gating, the
+Var4 latch, the RuleTimer heartbeat race, and most of the plug-to-plug leak surface —
+because the plug stops doing pipeline work. The Berry-side gotchas already documented
+above (Tele# trigger, import string, staggered sends, match-by-ROM-ID) still apply.
+
+Build approach when pursued: prototype on the MAT loop first (idle, drives nothing — zero
+risk), prove Berry-decides / plug-obeys / PulseTime-still-trips end-to-end (re-verify BOTH
+failsafe properties), then roll to the belt. Consider station-prefixed internal event
+names if any future device needs to broadcast.
+
 ## Current state
 
 Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
