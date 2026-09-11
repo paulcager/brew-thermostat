@@ -21,41 +21,41 @@ official Tasmota docs. They were expensive to establish. Do not re-derive them.
 Every command in this repo targets **real devices on Paul's home network**, and the plug
 switches a **mains heater** that will sit against a live fermentation vessel.
 
-Current single-loop rig (LIVE, group `brew`):
-- Sensor `temp-probe` — 192.168.0.64 (ESP32, has Berry)
-- Plug `tasmota2` — 192.168.0.58 (ESP8285, **no Berry** — plug logic must use Rules)
-
-New 2-loop rig (group `brew2`, see "Planned architecture"). PARTLY LIVE as of 2026-09-11:
-- Sensor `temp-probe-2A-98` — 192.168.0.91 (ESP32-C3, has Berry, 3x DS18B20)
+THE rig (group `brew2`) — as of 2026-09-11 this is the ONLY thermostat; the old
+single-loop `brew` rig has been decommissioned (see below):
+- Sensor `temp-probe-2A-98` — 192.168.0.91 (ESP32-C3, has Berry, 3x DS18B20 on GPIO5:
+  mat=212DD2, belt=21A246, ambient=C97887). Runs `autoexec.be` broadcasting to `brew2`.
 - Belt plug `plug-belt` — 192.168.0.57 (ESP8285, no Berry; formerly `tasmota1`).
-  **LIVE: driving the real belt on the week-2 jar since 2026-09-11.** Verified regulating
-  (heats, cuts at >26, watchdog clears on cutoff).
+  **LIVE: driving the real belt on the week-2 jar.** Verified regulating (heats, cuts at
+  >26, watchdog clears on cutoff). Rule1 keyed to `Event#belt`.
 - Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry; formerly `desk-lamp`).
-  Configured and verified, but IDLE — no jar on the mat station until the next week-1 jar
-  starts (expected ~2026-09-12). Its loop broadcasts/heartbeats fine but there's nothing
-  to heat yet.
-  Both plugs were repurposed for this project — they are ours to configure, NOT off-limits.
+  Configured + verified but **not connected to any heater yet**, and no jar on the mat
+  station until the next week-1 jar starts (~2026-09-12). Rule1 keyed to `Event#mat`.
 
-NOTE on the current rotation (2026-09-11): the old week-2 jar was bottled; the old week-1
-jar became the new week-2 and moved onto the BELT. The three C3 probes are (for now) ALL
-on that one belt-jar for validation — so the dashboard "New Rig Probes" panel shows three
-near-identical lines, which is expected. Normal station placement (one probe per station)
-resumes once a new week-1 jar goes on the mat.
+Current physical placement (2026-09-11): only the belt station is in use — week-2 jar,
+belt heater on plug-belt, belt probe (21A246) on that jar. The mat and ambient probes are
+just dangling (reading room temp ~19-20), and plug-mat drives nothing. So the dashboard
+"New Rig Probes" panel shows the belt line warm and the other two at room temp. A new
+week-1 jar on the mat will bring the mat station into use.
 
-**Other Tasmota devices on this LAN are in use — do not send commands to them:** `.62`,
-`.53`, `.52`, `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
-(`.32` and `.57` were `desk-lamp`/`tasmota1` in the original scan but are now the mat and
-belt plugs, part of this project.)
+DECOMMISSIONED (powered off, being removed — do NOT expect these to respond):
+- Old sensor `temp-probe` 192.168.0.64 and old plug `tasmota2` 192.168.0.58 (the original
+  single-loop `brew` rig — replaced by the brew2 rig above).
+- Whole-house CT clamp formerly at 192.168.0.89.
+
+**Other Tasmota devices on this LAN are in use — do not send commands to them:** `.53`,
+`.52`, `.62` (`electric-chair`). (`.32`/`.57` are now the mat/belt plugs, ours; `.64`/
+`.58`/`.89` are decommissioned.)
 
 Reading state is free. Before *changing* device state, consider whether a batch is
 fermenting — an unexpected heat cutout or an unwanted heating cycle affects a living
 culture over hours. If in doubt, ask.
 
-Devices are reachable over plain HTTP with no auth:
+Devices are reachable over plain HTTP (SetOption128 ON allows header-less API):
 
 ```bash
-curl -s "http://192.168.0.58/cm?cmnd=Status%200"                       # read
-curl -s --get "http://192.168.0.58/cm" --data-urlencode "cmnd=Rule1 ON ..."   # write
+curl -s "http://192.168.0.57/cm?cmnd=Status%200"                       # read (belt plug)
+curl -s --get "http://192.168.0.57/cm" --data-urlencode "cmnd=Rule1 ON ..."   # write
 ```
 
 Use `--data-urlencode` for anything containing spaces, `%`, `;` or `#`. Rule text is
@@ -162,13 +162,17 @@ The plug meters its own load, so you can confirm the heater is genuinely drawing
 rather than trusting the relay state:
 
 ```bash
-curl -s "http://192.168.0.58/cm?cmnd=Status%208"   # heater on / 0W off
+curl -s "http://192.168.0.57/cm?cmnd=Status%208"   # belt plug: heater on / 0W off
 ```
 
-NOTE: the live heater is now the ~22W seedling mat (constant power, no cutout), not the
-old 25W belt. So watts should be a steady ~22W while on — the belt's ~1min on/off
-self-cycling described below does NOT apply to the mat. Much of README still says "belt"
-as accurate history; the multi-loop rebuild will have both a mat and a belt.
+NOTE: there are now TWO heaters, one per station, with DIFFERENT wattage signatures:
+- BELT (on plug-belt .57): the original ~25W belt with its own internal thermal cutout,
+  so while our relay is ON it self-cycles ~1min at ~32W / ~1min at 0W. `watts=0` with
+  relay ON is NORMAL here (see "belt's own internal cutout" below).
+- MAT (on plug-mat .32): a ~22W seedling mat, constant power, NO cutout — steady ~22W
+  while on, so relay ON + watts 0 WOULD be a real fault on the mat.
+(README still describes a single-belt setup as accurate history for that period; it gets
+reworked for the 2-loop rig at Phase 5.)
 
 A healthy loop: the plug's `Var1` tracks the sensor's temperature (a one-reading lag is
 normal), and `PulseTime1`'s `Remaining` sawtooths — decaying to ~640, jumping back to
