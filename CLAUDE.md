@@ -25,11 +25,22 @@ Current single-loop rig (LIVE, group `brew`):
 - Sensor `temp-probe` — 192.168.0.64 (ESP32, has Berry)
 - Plug `tasmota2` — 192.168.0.58 (ESP8285, **no Berry** — plug logic must use Rules)
 
-New 2-loop rig being built (group `brew2`, see "Planned architecture"):
+New 2-loop rig (group `brew2`, see "Planned architecture"). PARTLY LIVE as of 2026-09-11:
 - Sensor `temp-probe-2A-98` — 192.168.0.91 (ESP32-C3, has Berry, 3x DS18B20)
-- Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry; formerly `desk-lamp`)
-- Belt plug `plug-belt` — 192.168.0.57 (ESP8285, no Berry; formerly `tasmota1`)
+- Belt plug `plug-belt` — 192.168.0.57 (ESP8285, no Berry; formerly `tasmota1`).
+  **LIVE: driving the real belt on the week-2 jar since 2026-09-11.** Verified regulating
+  (heats, cuts at >26, watchdog clears on cutoff).
+- Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry; formerly `desk-lamp`).
+  Configured and verified, but IDLE — no jar on the mat station until the next week-1 jar
+  starts (expected ~2026-09-12). Its loop broadcasts/heartbeats fine but there's nothing
+  to heat yet.
   Both plugs were repurposed for this project — they are ours to configure, NOT off-limits.
+
+NOTE on the current rotation (2026-09-11): the old week-2 jar was bottled; the old week-1
+jar became the new week-2 and moved onto the BELT. The three C3 probes are (for now) ALL
+on that one belt-jar for validation — so the dashboard "New Rig Probes" panel shows three
+near-identical lines, which is expected. Normal station placement (one probe per station)
+resumes once a new week-1 jar goes on the mat.
 
 **Other Tasmota devices on this LAN are in use — do not send commands to them:** `.62`,
 `.53`, `.52`, `.89`. `.89` is a whole-house CT clamp; `.62` is `electric-chair`.
