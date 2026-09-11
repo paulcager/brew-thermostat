@@ -105,10 +105,20 @@ Related invariants:
 README.md annotates every setup command in full. The non-obvious rationale, so you
 don't "tidy" these into breakage:
 
-- **`DevGroupShare 64,64` is intentionally not the default.** `64` is the `Event` bit,
-  the only thing the two devices share. The default shares *everything*, which includes
-  power state — the plug's relay toggling would then try to drag the sensor along. Do
-  not widen it to `-1,-1` or similar.
+- **`DevGroupShare` (the Event bit, 64) — direction matters, and got asymmetric on the
+  brew2 rig.** `64` = the `Event` item (the only thing shared); the default `-1,-1` shares
+  *everything* incl. power state, which must never be used here.
+  - The SENSOR (C3) uses `64,64` (in,out) — it broadcasts events out.
+  - Both PLUGS use **`64,0`** — receive events, send NONE.
+  WHY the plugs must NOT send (the fix for a real chatter bug, 2026-09-11): with two plugs
+  in one group both set to `64,64`, each plug re-broadcast its OWN internal pipeline events
+  (`s1`/`s2`/`hb` — the rule chain's intermediate stages) back into brew2. The other plug's
+  rules (`Event#s2>26`, the `hb` heartbeat) then fired on the FIRST plug's s2/hb, so the
+  two plugs cross-triggered each other's hysteresis — the belt switched on/off based on the
+  MAT jar's temperature, chattering every ~1-2 min. This did NOT show in single-plug
+  isolation testing; it only appears with ≥2 plugs sharing the event namespace. Fix:
+  `DevGroupShare 64,0` on every plug so internal events stay local. Persists across reboot.
+  (The DevGroupSend from the sensor still reaches the plugs via their In=64.)
 - **`DevGroupName1 brew` must match byte-for-byte, case-sensitive, on both devices.** A
   mismatch fails silently: no error, just no data crossing. The `1` is the group slot,
   unrelated to the item number `192` in the rules.
