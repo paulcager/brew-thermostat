@@ -40,6 +40,50 @@
           "step": "60s",
           "useValueForTime": false
         }
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "enable": true,
+        "filter": {
+          "exclude": false,
+          "ids": [
+            6
+          ]
+        },
+        "hide": false,
+        "iconColor": "green",
+        "name": "Mat heater ON",
+        "target": {
+          "expr": "homeassistant_switch_state{friendly_name=\"plug-mat\"} == 1",
+          "refId": "Anno",
+          "step": "60s",
+          "useValueForTime": false
+        }
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "enable": true,
+        "filter": {
+          "exclude": false,
+          "ids": [
+            6
+          ]
+        },
+        "hide": false,
+        "iconColor": "orange",
+        "name": "Belt heater ON",
+        "target": {
+          "expr": "homeassistant_switch_state{friendly_name=\"plug-belt\"} == 1",
+          "refId": "Anno",
+          "step": "60s",
+          "useValueForTime": false
+        }
       }
     ]
   },
