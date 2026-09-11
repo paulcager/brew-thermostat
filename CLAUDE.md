@@ -29,14 +29,13 @@ single-loop `brew` rig has been decommissioned (see below):
   **LIVE: driving the real belt on the week-2 jar.** Verified regulating (heats, cuts at
   >26, watchdog clears on cutoff). Rule1 keyed to `Event#belt`.
 - Mat plug `plug-mat` — 192.168.0.32 (ESP8285, no Berry; formerly `desk-lamp`).
-  Configured + verified but **not connected to any heater yet**, and no jar on the mat
-  station until the next week-1 jar starts (~2026-09-12). Rule1 keyed to `Event#mat`.
+  **LIVE since 2026-09-12: driving the real ~22W mat on the new week-1 jar.** Verified
+  drawing ~22W when on (steady, no cutout). Rule1 keyed to `Event#mat`.
 
-Current physical placement (2026-09-11): only the belt station is in use — week-2 jar,
-belt heater on plug-belt, belt probe (21A246) on that jar. The mat and ambient probes are
-just dangling (reading room temp ~19-20), and plug-mat drives nothing. So the dashboard
-"New Rig Probes" panel shows the belt line warm and the other two at room temp. A new
-week-1 jar on the mat will bring the mat station into use.
+Current physical placement (2026-09-12): BOTH stations in use and both loops live —
+week-1 jar on the mat (mat probe 212DD2), week-2 jar on the belt (belt probe 21A246),
+ambient probe (C97887) in room air. The "New Rig Probes" panel shows three distinct lines
+(mat/belt warm-ish, ambient cooler) with green (mat) / orange (belt) heater-ON bands.
 
 DECOMMISSIONED (powered off, being removed — do NOT expect these to respond):
 - Old sensor `temp-probe` 192.168.0.64 and old plug `tasmota2` 192.168.0.58 (the original
@@ -264,8 +263,10 @@ ROM IDs to stations [done 2026-09-10 — board awaits a project box before insta
 Berry broadcast script [done 2026-09-10 — `autoexec.be`, see below]; (2) design+
 isolation-test each plug's rules (relay driving nothing, synthetic injection, sensor
 silenced, BOTH failsafe properties per plug) [DONE 2026-09-10 — both plugs verified
-end-to-end]; (3) integrate heaters, watch real cycles [TODO — heaters not yet on the new
-plugs]; (4) hot-swap; (5) README rework for the multi-loop design.
+end-to-end]; (3) integrate heaters, watch real cycles [DONE 2026-09-12 — both loops driving
+real heaters: belt ~32W self-cycling, mat verified ~22W steady]; (4) hot-swap [DONE — old
+rig decommissioned 2026-09-11, brew2 is sole]; (5) README rework for the multi-loop design
+[TODO — README still documents the old single-belt setup; this is the last remaining task].
 
 Both plugs (ESP8285/no-Berry, group brew2, verified 2026-09-10):
 - Mat plug `plug-mat` 192.168.0.32 (formerly `desk-lamp`) — Rule1 keyed to `Event#mat`.
@@ -366,9 +367,19 @@ names if any future device needs to broadcast.
 
 ## Current state
 
-Verified working end-to-end 2026-07-16; driving the real brew belt since 2026-07-18.
-Steady state is ~10 min of heating every 2-3 hours; the belt is idle ~90% of the time,
-so it has ample headroom. The deadband (now 2.5C, on 23.5 / off 26.0) does NOT cause chatter.
+As of 2026-09-12 the two-loop `brew2` rig is fully live and is the only thermostat: one
+ESP32-C3 sensor (3 probes) broadcasting to two dumb-Rules plugs, mat + belt, each on its
+own jar, each verified drawing real power and regulating on its own station. The old
+single-loop rig is decommissioned. Build is complete except the README rework (task 5).
+Setpoints on both plugs: on <23.5 / off >26 / cutoff >30, deadband 2.5C, PulseTime 700.
+
+The history below is from the ORIGINAL single-belt rig (Jul–Aug 2026). It is kept because
+its hard-won bug fixes (heartbeat latch, `>`-only sanity gating, etc.) were carried
+verbatim into the new plugs' Rule2 — so the reasoning still applies.
+
+Verified working end-to-end 2026-07-16; drove the real brew belt from 2026-07-18.
+Steady state was ~10 min of heating every 2-3 hours; the belt idle ~90% of the time,
+so ample headroom. The deadband (2.5C, on 23.5 / off 26.0) does NOT cause chatter.
 
 On 2026-07-27 fixed a significant latent bug: the `PulseTime` heartbeat starved whenever
 the belt was heating in the deadband, cutting the belt every ~10 min regardless of
