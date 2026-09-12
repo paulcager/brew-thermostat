@@ -55,9 +55,12 @@ fetch() {  # host  cmnd  jq-filter
   curl -s --max-time 4 "http://$1/cm?cmnd=$2" 2>/dev/null | jq -r "$3 // \"?\"" 2>/dev/null || echo "?"
 }
 
-# Round a value to 1 dp; pass non-numbers (e.g. "?") through unchanged.
+# Format a value to exactly 1 dp (e.g. 20 -> "20.0"); pass non-numbers ("?") through.
 round1() {  # value
-  printf '%s' "$1" | jq -Rr 'if test("^-?[0-9.]+$") then (tonumber*10|round/10) else . end' 2>/dev/null || printf '%s' "$1"
+  case "$1" in
+    ''|*[!0-9.+-]*) printf '%s' "$1" ;;        # non-numeric -> unchanged
+    *) printf '%.1f' "$1" 2>/dev/null || printf '%s' "$1" ;;
+  esac
 }
 
 header=$'time    \tmat_t\tmat_v1\tmat_r\tmat_w\tbelt_t\tbelt_v1\tbelt_r\tbelt_w\tamb_t'
@@ -71,11 +74,10 @@ while true; do
   ts=$(date +%T)
   # one sensor read for all three probes (indexed DS18B20-1/2/3 on the C3)
   sns=$(curl -s --max-time 4 "http://$SENSOR/cm?cmnd=Status%2010" 2>/dev/null)
-  # round temps to 1 dp in the jq filter (non-numbers fall through to "?")
-  rt='(.StatusSNS."%s".Temperature | if type=="number" then (.*10|round/10) else . end) // "?"'
-  mat_t=$(echo "$sns"  | jq -r "$(printf "$rt" DS18B20-1)" 2>/dev/null || echo "?")
-  belt_t=$(echo "$sns" | jq -r "$(printf "$rt" DS18B20-2)" 2>/dev/null || echo "?")
-  amb_t=$(echo "$sns"  | jq -r "$(printf "$rt" DS18B20-3)" 2>/dev/null || echo "?")
+  rt='.StatusSNS."%s".Temperature // "?"'
+  mat_t=$(round1  "$(echo "$sns" | jq -r "$(printf "$rt" DS18B20-1)" 2>/dev/null || echo '?')")
+  belt_t=$(round1 "$(echo "$sns" | jq -r "$(printf "$rt" DS18B20-2)" 2>/dev/null || echo '?')")
+  amb_t=$(round1  "$(echo "$sns" | jq -r "$(printf "$rt" DS18B20-3)" 2>/dev/null || echo '?')")
 
   mat_v1=$(round1 "$(fetch "$MAT"  "Var1" '.Var1')")
   mat_r=$(fetch  "$MAT"  "Power"      '.POWER')
