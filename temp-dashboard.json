@@ -28,28 +28,6 @@
         "filter": {
           "exclude": false,
           "ids": [
-            5
-          ]
-        },
-        "hide": false,
-        "iconColor": "green",
-        "name": "Heater ON",
-        "target": {
-          "expr": "homeassistant_switch_state{entity=\"switch.tasmota_2\"} == 1",
-          "refId": "Anno",
-          "step": "60s",
-          "useValueForTime": false
-        }
-      },
-      {
-        "datasource": {
-          "type": "prometheus",
-          "uid": "grafanacloud-prom"
-        },
-        "enable": true,
-        "filter": {
-          "exclude": false,
-          "ids": [
             6
           ]
         },
@@ -651,11 +629,11 @@
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
-      "description": "Kombucha brews from ~10C, but slowly below 21C. Ideal 24C. Above 30C the SCOBY may start to die.\n\nLines: min-brew 21 (blue), target 24 (green dotted), scoby-death 30 (red) - matching the plug's hard cutoff.",
+      "description": "Generic probe panel. Shows all DS18B20 temperature sensors except the temp-probe-2A-98 (brew2 rig) probes. Repurpose freely.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "continuous-RdYlGr"
+            "mode": "palette-classic"
           },
           "custom": {
             "axisBorderShow": false,
@@ -663,8 +641,6 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "axisSoftMax": 31,
-            "axisSoftMin": 20,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
@@ -708,87 +684,7 @@
           },
           "unit": "celsius"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "scoby-death"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": true,
-                  "tooltip": false,
-                  "viz": false
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "min-brew"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": true,
-                  "tooltip": false,
-                  "viz": false
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "target"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [
-                    2,
-                    6
-                  ],
-                  "fill": "dot"
-                }
-              },
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": true,
-                  "tooltip": false,
-                  "viz": false
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -826,47 +722,11 @@
             "uid": "grafanacloud-prom"
           },
           "editorMode": "code",
-          "expr": "homeassistant_sensor_temperature_celsius{friendly_name=\"temp-probe DS18B20 Temperature\"}",
+          "expr": "homeassistant_sensor_temperature_celsius{entity=~\"sensor.*ds18b20.*\",entity!~\"sensor.temp_probe_2a_98.*\"}",
           "instant": false,
           "legendFormat": "{{friendly_name}}",
           "range": true,
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "editorMode": "code",
-          "expr": "30",
-          "instant": false,
-          "legendFormat": "scoby-death",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "editorMode": "code",
-          "expr": "21",
-          "instant": false,
-          "legendFormat": "min-brew",
-          "range": true,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "editorMode": "code",
-          "expr": "24",
-          "instant": false,
-          "legendFormat": "target",
-          "range": true,
-          "refId": "D"
         }
       ],
       "title": "Probe Temperature",
@@ -877,7 +737,7 @@
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
-      "description": "temp-probe-2A-98 (ESP32-C3). Three DS18B20: mat / belt / ambient stations. Currently all on the belt jar for validation.",
+      "description": "temp-probe-2A-98 (ESP32-C3). Three DS18B20, one per station: mat / belt / ambient. Green bands = mat heater on, orange = belt heater on.",
       "fieldConfig": {
         "defaults": {
           "color": {
