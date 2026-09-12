@@ -33,7 +33,7 @@
         },
         "hide": false,
         "iconColor": "green",
-        "name": "Mat heater ON",
+        "name": "Show Mat Heating",
         "target": {
           "expr": "homeassistant_switch_state{friendly_name=\"plug-mat\"} == 1",
           "refId": "Anno",
@@ -55,7 +55,7 @@
         },
         "hide": false,
         "iconColor": "orange",
-        "name": "Belt heater ON",
+        "name": "Show Belt Heating",
         "target": {
           "expr": "homeassistant_switch_state{friendly_name=\"plug-belt\"} == 1",
           "refId": "Anno",
