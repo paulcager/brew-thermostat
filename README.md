@@ -1,185 +1,210 @@
 # brew-thermostat
 
-A fail-safe thermostat for a kombucha fermentation vessel, built from two Tasmota
-devices talking directly to each other. No custom hardware, no code running on a
-server, and no dependency on Home Assistant or MQTT for the control loop.
+Fail-safe thermostats for kombucha fermentation jars, built entirely from **Tasmota
+configuration** on off-the-shelf devices — no custom firmware, no server, and no
+dependency on Home Assistant or MQTT for the control loop.
 
-A DS18B20 sensor multicasts its temperature to a smart plug over the LAN. The plug
-decides for itself whether to switch a 25W brew belt on, and — crucially — switches
-itself **off** if the readings ever stop arriving.
+One ESP32-C3 sensor board reads three DS18B20 probes and broadcasts each temperature
+over the LAN (Tasmota Device Groups, UDP multicast). Two smart plugs each drive a heater
+on a jar — a seedling **mat** and a **belt** — and each plug decides for itself whether
+to switch on. Crucially, each plug switches itself **off** if the readings ever stop
+arriving, using a failsafe in the plug's own firmware.
+
+> **History:** the project began (Jul 2026) as a single loop — one ESP32 sensor and one
+> plug driving one belt. It was rebuilt (Sep 2026) into the two-loop rig described here;
+> the original rig is decommissioned. The git history and the gotchas below carry the
+> hard-won lessons from that first version — most of which shaped the current design.
 
 ## Status
 
-Verified working on real hardware, and driving the brew belt against a live vessel
-since 2026-07-18. In steady state the belt pulses for ~10 minutes roughly every 2-3
-hours to hold the vessel near setpoint, cutting out correctly at the off threshold. The
-deadband (now 2.5C) does not cause relay chatter.
+Fully live on real hardware since 2026-09-12: both loops driving real heaters on real
+jars (mat on the week-1 jar, belt on the week-2 jar). Each loop holds its jar near
+setpoint with long, lazy pulses and a 2.5°C deadband that does not chatter.
 
-Note the probe reads the glass ~8cm above the belt, and the glass leads the bulk liquid
-by around 1C — so the liquid runs slightly below the 24C target. This is expected and
-fine for kombucha (it brews well from 21C); see the dashboard notes if you want to
-compensate.
+The probes read the glass, not the liquid; the glass leads the bulk liquid, so the liquid
+runs a little below the glass reading. Fine for kombucha (it brews well from 21°C). With
+insulation the steady-state offset is small.
 
-The brewing runs as two ~3L jars with start days offset by a week, each fermenting about
-two weeks. Only the week-1 jar is heated (under the belt); the second-week jar coasts at
-ambient. So the thermostat always regulates a young, actively-fermenting jar, and the
-cycle pattern shows a brief discontinuity roughly weekly when the jars rotate and a cold
-fresh jar goes under the belt.
+## How the brewing runs
+
+Two ~3 L jars, start days offset by a week, each fermenting ~2 weeks. Physical jars are
+labelled A/B/C (a spare eases decanting starter). Weekly: the week-2 jar is bottled, the
+week-1 jar becomes week-2, and a new jar starts as week-1. **Both** jars are heated —
+week-1 on the mat, week-2 on the belt. Expect a brief discontinuity in the cycle pattern
+at each weekly rotation (a cold jar arriving), which is a jar swap, not a fault.
+
+Stations are fixed; jars move between them. The sensor probes are labelled per **station**
+(mat / belt / ambient), not per jar — so a dashboard line always means "the mat station",
+regardless of which jar is currently there.
 
 ## Hardware
 
-| Role | Name | IP | Chip | Firmware | Notes |
+| Role | Name | IP | Chip | FW | Notes |
 |---|---|---|---|---|---|
-| Sensor | `temp-probe` | 192.168.0.64 | ESP32 | 15.5.0 | DS18B20, has Berry |
-| Plug | `tasmota2` | 192.168.0.58 | ESP8285 | 15.5.0 | Energy monitoring, **no Berry** |
+| Sensor | `temp-probe-2A-98` | 192.168.0.91 | ESP32-C3 | 15.6.0 | 3× DS18B20 on GPIO5; **has Berry** |
+| Mat plug | `plug-mat` | 192.168.0.32 | ESP8285 | 15.6.0 | drives the ~22 W seedling mat; no Berry |
+| Belt plug | `plug-belt` | 192.168.0.57 | ESP8285 | 15.6.0 | drives the ~25 W belt; no Berry |
 
-The plug has no Berry scripting compiled in, so all plug-side logic must be written
-with the Rules engine. This is the single biggest constraint on the design.
+The plugs have no Berry, so all plug-side logic is in the Rules engine. The sensor has
+Berry and runs `autoexec.be` (in this repo) to read the probes and broadcast them.
 
-Other Tasmota devices on this LAN are in use — `.57`, `.62`, `.32`, `.53`, `.52`, `.89`.
-Leave them alone.
+The three DS18B20 are on one 1-Wire bus, each identified by a permanent ROM ID and
+assigned to a station:
 
-Broker: `192.168.0.2:1883`, user `tasmota`. Home Assistant runs on the same host.
+| Station | ROM ID | Heater |
+|---|---|---|
+| `mat` | `000000212DD2` | seedling mat (~22 W, constant, no cutout) |
+| `belt` | `00000021A246` | brew belt (~25 W, has its own thermal cutout — see gotchas) |
+| `ambient` | `000000C97887` | none (room reference) |
+
+Broker: `192.168.0.2:1883`, user `tasmota`, used for observation only (Home Assistant +
+Grafana). The control loop does not depend on it. Decommissioned: the old single-loop
+sensor (192.168.0.64) and plug (192.168.0.58), and a whole-house CT clamp (192.168.0.89).
 
 ## Setpoints
 
+Both plugs use the same setpoints (keyed to their own station event):
+
 | Parameter | Value | Reason |
 |---|---|---|
-| Target | 24C | Ideal kombucha fermentation |
-| Heat on below | 23.5C | Target minus half the deadband |
-| Heat off above | 26.0C | Raised 24.5→25.0 (2026-07-26), then 25.0→26.0 (2026-08-07) |
-| Hard cutoff | 30C | Well clear of ~35C, which kills the SCOBY |
-| Sanity floor | 5C | Anything at or below this is treated as a broken sensor |
-| Sanity ceiling | 40C | Anything above is treated as a broken sensor |
-| Failsafe timeout | 600s (10 min) | No readings for 10 minutes ⇒ heat off |
-| Sensor telemetry | 60s | Ten heartbeats per failsafe window |
+| Heat on below | 23.5°C | |
+| Heat off above | 26.0°C | Glass reads high on heating spikes; 26 lets the liquid reach range |
+| Hard cutoff | 30°C | Well clear of ~35°C, which kills the SCOBY |
+| Sanity floor | 5°C | At/below ⇒ treated as a broken sensor |
+| Sanity ceiling | 40°C | Above ⇒ treated as a broken sensor |
+| Failsafe timeout | 600 s (10 min) | No readings for 10 min ⇒ heat off |
+| Sensor telemetry | 60 s | Ten heartbeats per failsafe window |
 
-The deadband is 2.5C (widened from an initial 1C in stages). A 25W belt heating a large, slow
-thermal mass produces long, lazy cycles; it has not caused relay chatter.
+Deadband is 2.5°C (widened from 1°C in stages — see git history). The off threshold sits
+at 26 rather than 24 because the glass probe leads the liquid on each heating spike;
+letting the glass run to 26 lifts the liquid trough into range.
 
 ## How it works
 
 ```
-  DS18B20                Device Groups                   Relay
-  ┌────────────┐         (UDP multicast)         ┌──────────────────┐
-  │ temp-probe │ ──── brewtemp=23.4 ──────────►  │    tasmota2      │
-  │  (ESP32)   │        every 60s                │   (ESP8285)      │
-  └────────────┘                                 │                  │
-                                                 │  Rule1: sanity   │
-                                                 │  Rule2: hysteresis
-                                                 │  PulseTime: 600s │
-                                                 └────────┬─────────┘
-                                                          │
-                                                    25W brew belt
+  temp-probe-2A-98 (ESP32-C3)              Device Groups "brew2"
+  ┌──────────────────────────┐            (UDP multicast)         ┌──────────────┐
+  │ 3× DS18B20 on 1-Wire bus  │ ── mat=24.1 ───────────────────►  │   plug-mat   │ ─► mat
+  │ autoexec.be reads each by │ ── belt=23.8 ──────────────────►  │   plug-belt  │ ─► belt
+  │ ROM ID, broadcasts every  │ ── ambient=19.9 ──(no plug)       └──────────────┘
+  │ 60 s, staggered           │
+  └──────────────────────────┘   each plug: Rule1 sanity + Rule2 hysteresis + PulseTime
 ```
 
-There are three independent layers of protection, and each one distrusts the layer
-above it:
+Each plug is an independent control loop. For a station, there are three layers of
+protection, each distrusting the one above:
 
-1. **Sanity gate** — a reading must look like a real temperature before it is allowed
-   to influence anything.
-2. **Hysteresis + hard cutoff** — decides heat on/off, and refuses to heat above 30C.
-3. **`PulseTime` failsafe** — implemented in the plug's own firmware. If readings stop
-   for any reason at all, the relay switches itself off without needing to be told.
+1. **Sanity gate** — a reading must look like a real temperature before it influences
+   anything.
+2. **Hysteresis + hard cutoff** — decides heat on/off, refuses to heat above 30°C.
+3. **`PulseTime` failsafe** — in the plug's own firmware. If readings stop for any reason,
+   the relay switches itself off unprompted.
 
-Layer 3 is the one that matters. It runs on the plug, so it still works when the WiFi
-is down, the broker is down, Home Assistant is down, or the sensor is unplugged. This
-is why the fail-safe requirement could not have been met with a Home Assistant
-automation.
+Layer 3 is the one that matters: it runs on the plug, so it still works when WiFi, the
+broker, Home Assistant, or the sensor is the thing that failed. This is why the failsafe
+could not live in Home Assistant.
+
+Only the **sensor** broadcasts; the plugs only receive. This matters — see
+"Plug-to-plug event leak" in the gotchas.
 
 ## Setup from scratch
 
-Type these into the Tasmota console of each device (**Consoles → Console** in the web
-UI), or via `http://<ip>/cm?cmnd=<command>`.
+Commands go into each device's Tasmota console (**Consoles → Console**) or via
+`http://<ip>/cm?cmnd=<command>` (needs `SetOption128 1` — see gotchas). A captured
+snapshot of the live config is in [`config/captured-config.txt`](config/captured-config.txt);
+the broadcaster script is [`autoexec.be`](autoexec.be).
 
-### On the sensor (192.168.0.64)
+### Sensor (192.168.0.91)
 
 ```
-DevGroupName1 brew
-DevGroupShare 64,64
+SetOption128 1          # allow header-less HTTP API (fresh 15.6 flashes default this off)
+DevGroupName1 brew2
+DevGroupShare 64,64     # sensor broadcasts events out
 SetOption85 1
 TelePeriod 60
-Rule1 ON Tele-DS18B20#Temperature DO DevGroupSend1 192=brewtemp=%value% ENDON
-Rule1 1
 Restart 1
 ```
 
-### On the plug (192.168.0.58)
+Then upload `autoexec.be` (web UI → Consoles → **Manage File system**, or the `/ufsu`
+endpoint) and `Restart 1`. It auto-runs at boot, reads all three probes by ROM ID, and
+broadcasts `mat` / `belt` / `ambient` events every telemetry cycle.
+
+### Each plug (mat 192.168.0.32 / belt 192.168.0.57)
+
+Identical except the station name in Rule1 (`mat` vs `belt`):
 
 ```
-DevGroupName1 brew
-DevGroupShare 64,64
+SetOption128 1
+DevGroupName1 brew2
+DevGroupShare 64,0      # plugs RECEIVE events, send NONE (see gotchas)
 SetOption85 1
 PowerOnState 0
 PulseTime1 700
-Rule1 ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON
+Rule1 ON Event#mat DO Backlog Var1 %value%; Event s1=%value% ENDON ON Event#s1>5 DO Event s2=%value% ENDON ON Event#s2>40 DO Power1 off ENDON
 Rule2 ON Event#s2>30 DO Backlog Var4 0; Power1 off ENDON ON Event#s2<23.5 DO Backlog Var4 1; Power1 on ENDON ON Event#s2>26 DO Backlog Var4 0; Power1 off ENDON ON Event#s2>0 DO RuleTimer1 1 ENDON ON Rules#Timer=1 DO Event hb=%var4% ENDON ON Event#hb>0 DO Power1 on ENDON
 Rule1 1
 Rule2 1
 Restart 1
 ```
 
-`SetOption85` does not take effect until the device restarts. Both devices need it.
-
-A working snapshot of this configuration is captured in
-[`config/captured-config.txt`](config/captured-config.txt).
+For the belt plug, change `Event#mat` to `Event#belt` in Rule1. Everything else is the
+same. `SetOption85` only takes effect after the restart.
 
 ## The configuration commands, annotated
 
-The rules are explained further down; these are the non-rule setup commands.
-
 | Command | What it does |
 |---|---|
-| `DevGroupName1 brew` | Puts the device in device group **1**, named `brew`. Both devices must use the **exact same, case-sensitive** name to talk to each other. The `1` is the group slot (a device can be in up to four groups); it is unrelated to the item number `192` used in the rule. |
-| `DevGroupShare 64,64` | Selects which kinds of item this device will **receive,send** over the group, as a bitmask. `64` is the `Event` bit — the only thing we share. Sharing everything (the default) would also sync power state, so if you toggled the plug's relay the sensor would try to follow; restricting to `64` prevents that. **Gotcha:** it reports back in hex, so `64,64` reads as `40,40`. See the gotchas section. |
-| `SetOption85 1` | Master switch for the whole device-groups feature. Off by default. **Needs a restart** before it takes effect — setting it alone does nothing. Required on both devices. |
-| `TelePeriod 60` | How often (seconds) the sensor emits the telemetry reading that triggers its broadcast rule. This is the **heartbeat rate**, and it must stay well under the plug's `PulseTime` window — see the failsafe section. Only meaningful on the sensor; the plug's own `TelePeriod` is just housekeeping. |
-| `PowerOnState 0` | On the plug: boot the relay **off**. The default (`1`) would switch the belt on at power-up, so a power cut would leave it heating unattended until the first reading arrived. Safety setting — see the failsafe section. |
-| `PulseTime1 700` | The failsafe. `700` = 600 seconds. Fully explained under "The failsafe" below — it is the single most important line in the setup. |
-| `Restart 1` | Reboots the device, which is what actually activates `SetOption85`. |
+| `SetOption128 1` | Allow HTTP API calls that arrive with no `Referer` header (i.e. all `curl`/script access). Fresh Tasmota ≥15.6 defaults this **off** and silently denies the API — see gotchas. |
+| `DevGroupName1 brew2` | Joins device group **1**, named `brew2`. All members must use the **exact same, case-sensitive** name. The `1` is the group slot (up to four); unrelated to item number `192` in the rules. |
+| `DevGroupShare <in>,<out>` | Bitmask of which item types to **receive,send**. `64` = the `Event` bit (the only item we use). **Sensor uses `64,64`** (broadcasts out); **plugs use `64,0`** (receive only, send nothing) so their internal rule events don't leak to each other — see gotchas. Reports back in hex: `64` reads as `40`. |
+| `SetOption85 1` | Master switch for device groups. **Needs a `Restart`** to take effect; setting it alone does nothing. All devices. |
+| `TelePeriod 60` | Sensor telemetry rate = the broadcast/heartbeat rate. Must stay well under the plug's `PulseTime` window (600 s). Only meaningful on the sensor. |
+| `PowerOnState 0` | Plug boots its relay **off**. The default (`1`) would energise the heater at power-up. Safety setting. |
+| `PulseTime1 700` | The failsafe. `700` = 600 seconds. See "The failsafe" below — the single most important line. |
 
-One relevant `SetOption` we **leave alone**: `SetOption19` is **off** on both devices.
-That is correct for Home Assistant's native Tasmota integration; turning it on switches
-to the deprecated legacy MQTT auto-discovery. See the Home Assistant section.
+`SetOption19` is left **off** on all devices — correct for Home Assistant's native
+Tasmota integration; enabling it switches to deprecated legacy MQTT discovery.
 
 ## The rules, annotated
 
-### Sensor rule
+### Sensor: the Berry broadcaster (`autoexec.be`)
 
-```
-Rule1 ON Tele-DS18B20#Temperature DO DevGroupSend1 192=brewtemp=%value% ENDON
-```
+Instead of a Rule, the C3 uses a Berry script (it has Berry; the old single-sensor ESP32
+used a Rule). It reads all three DS18B20 **by ROM ID** (not by `DS18B20-N` index, which
+can reorder), and broadcasts each as a station event. The full annotated script is in
+[`autoexec.be`](autoexec.be); the essentials:
 
-| Fragment | Meaning |
-|---|---|
-| `ON ... DO ... ENDON` | Tasmota rule syntax: a trigger and an action. |
-| `Tele-DS18B20#Temperature` | Fires on each **telemetry** reading of the DS18B20's temperature. The `Tele-` prefix means the periodic report (every `TelePeriod` seconds), not an instantaneous poll. |
-| `DevGroupSend1` | Broadcast to device group **1** (the one named `brew`). |
-| `192=` | Item 192 is `DGR_ITEM_EVENT` — see the gotchas below. It carries an arbitrary string to every group member. |
-| `brewtemp=%value%` | The payload. `%value%` expands to the temperature that triggered the rule. On the receiving devices this fires an event named `brewtemp` with that value. |
+- Triggered by `Tele#DS18B20-1#Temperature` — the telemetry event, once per `TelePeriod`.
+- For each station it sends `DevGroupSend1 192=<station>=<temp>` (item 192 = the Event
+  item; see gotchas).
+- The three sends are **staggered ~300 ms apart**, not fired in a tight loop — see
+  "Transient events collide" in the gotchas.
+- A missing/failed probe broadcasts **nothing** for that station, so that station's plug
+  gets no heartbeat and its `PulseTime` failsafe trips — correct fail-safe behaviour.
 
-So: every 60 seconds, "here is the temperature" goes out to the group.
+So every 60 s, "here is each station's temperature" goes out to the group, and each plug
+picks up its own.
 
 ### Plug Rule1 — sanity gate
 
 ```
-ON Event#brewtemp DO Backlog Var1 %value%; Event s1=%value% ENDON
+ON Event#<station> DO Backlog Var1 %value%; Event s1=%value% ENDON
 ON Event#s1>5      DO Event s2=%value%                          ENDON
 ON Event#s2>40     DO Power1 off                                ENDON
 ```
 
+`<station>` is `mat` or `belt` depending on the plug.
+
 | Line | Meaning |
 |---|---|
-| `ON Event#brewtemp` | Catches the event broadcast by the sensor. |
-| `Backlog A; B` | Runs two commands in sequence. |
-| `Var1 %value%` | Stashes the reading in variable 1. **Nothing reads `Var1`** — it exists purely so the last reading is visible in the console and in Home Assistant. It is observability, not logic. |
-| `Event s1=%value%` | Re-fires the value as a *new* event named `s1`, passing it to the next stage. This chaining is how a multi-step decision is built. |
-| `ON Event#s1>5` | **The sanity gate.** Only a value above 5C is passed on to `s2`. Junk, an empty payload, and the DS18B20's `-127` error value all fail this test and stop here — so they can never reach the heating logic. |
-| `ON Event#s2>40` | Above 40C is not a plausible brew temperature, so treat it as a broken sensor (the DS18B20 reports `85` on error) and cut the power. |
+| `ON Event#<station>` | Catches this plug's station event, broadcast by the sensor. |
+| `Var1 %value%` | Stashes the reading in `Var1`. **Nothing reads it** — pure observability (visible in console / Home Assistant / `log-temps.sh`). |
+| `Event s1=%value%` | Re-fires the value as event `s1`, passing it to the next stage. Chaining builds a multi-step decision. |
+| `ON Event#s1>5` | **The sanity gate.** Only a value above 5°C passes to `s2`. Junk, empty, and the DS18B20 `-127` error all fail this and stop here. |
+| `ON Event#s2>40` | Above 40°C is implausible (the DS18B20 reports `85` on error) — treat as broken and cut power. |
 
-The gate is a **whitelist**, not a blacklist. Only a plausible value earns the right to
-make a decision; everything else falls through to the safe state. This is deliberate,
-and the reason why is in the gotchas.
+A **whitelist**, not a blacklist: only a plausible value earns a decision; everything
+else falls through to the safe state. Why in the gotchas.
 
 ### Plug Rule2 — hysteresis, cutoff, and heartbeat
 
@@ -192,41 +217,28 @@ ON Rules#Timer=1 DO Event hb=%var4% ENDON
 ON Event#hb>0    DO Power1 on ENDON
 ```
 
-`Var4` is a **software latch**: `1` means "the belt should be heating", `0` means it
-should not. It is the memory that lets the deadband work without starving the failsafe
-(see below for why that matters).
+`Var4` is a **software latch**: `1` = "this heater should be on". It lets the deadband
+work without starving the failsafe.
 
 | Line | Meaning |
 |---|---|
-| `ON Event#s2>30 DO Backlog Var4 0; Power1 off` | Hard safety cutoff, checked before anything else. Clears the latch and cuts power. Redundant with the `>25` line for *turning off*, but kept as a separate, explicit safety limit so tuning the setpoint can never accidentally disable it. |
-| `ON Event#s2<23.5 DO Backlog Var4 1; Power1 on` | Too cold — set the latch and heat. |
-| `ON Event#s2>26 DO Backlog Var4 0; Power1 off` | Warm enough — clear the latch and stop. |
-| `ON Event#s2>0 DO RuleTimer1 1` | **Every** valid reading arms a 1-second timer. (Temperature is always > 0 after the `>5` sanity gate, so this fires on every reading.) |
-| `ON Rules#Timer=1 DO Event hb=%var4%` | When that timer expires, emit a heartbeat event carrying the current latch value. The 1-second delay is essential: it lets the `Backlog Var4 ...` from the decision lines commit *before* the latch is read, avoiding a race. |
-| `ON Event#hb>0 DO Power1 on` | If the latch is set, re-issue `Power on`. This refreshes the `PulseTime` countdown (see below) without changing the relay if it is already on. |
+| `ON Event#s2>30 DO Backlog Var4 0; Power1 off` | Hard safety cutoff, checked first. Redundant with `>26` for turning off, but kept as a separate explicit limit so tuning the setpoint can't accidentally disable it. |
+| `ON Event#s2<23.5 DO Backlog Var4 1; Power1 on` | Too cold — set latch, heat. |
+| `ON Event#s2>26 DO Backlog Var4 0; Power1 off` | Warm enough — clear latch, stop. |
+| `ON Event#s2>0 DO RuleTimer1 1` | **Every** valid reading arms a 1-second timer (temp is always > 0 after the `>5` gate). |
+| `ON Rules#Timer=1 DO Event hb=%var4%` | 1 s later, emit a heartbeat carrying the latch. The delay is essential: it lets the decision lines' `Backlog Var4 ...` commit *before* the latch is read (avoids a race — see gotchas). |
+| `ON Event#hb>0 DO Power1 on` | If the latch is set, re-issue `Power on` — refreshes `PulseTime` without changing an already-on relay. |
 
-Between 23.5 and 26.0 **no on/off decision fires**, and the relay keeps its current state.
-That gap *is* the deadband: it is what stops the relay chattering around the setpoint. A
-reading of 24.0 doing nothing to the relay is correct. **But** the heartbeat lines still
-run on every reading, so while the belt is heating through the deadband the `PulseTime`
-countdown keeps being refreshed. This is the fix for a bug where the belt cut out every
-~10 minutes — see "The heartbeat starvation bug" in the gotchas.
+Between 23.5 and 26.0 **no on/off decision fires** and the relay holds state — that gap
+is the deadband, and it stops chatter. **But** the heartbeat lines still run every
+reading, so the `PulseTime` countdown keeps refreshing while heating through the deadband.
+This is the fix for the heartbeat-starvation bug (gotchas). Cooling back down does not
+re-fire: once `>26` clears the latch, a 25.9 reading on the way down leaves it cleared
+until the temperature falls below 23.5. The latch does not survive a reboot (comes back 0),
+so a power cut boots the heater off — complementing `PowerOnState 0`.
 
-Cooling back down does not re-fire the belt: once the `>26` line clears the latch, a
-reading of 25.9 on the way down leaves it cleared (`hb>0` is false), so the belt stays off
-until the temperature falls below 23.5. The latch does not survive a reboot — it comes
-back empty (0), so a power cut boots the belt off and keeps it off until a genuine
-below-23.5 reading, complementing `PowerOnState 0`.
-
-The off threshold has been raised twice: 24.5 → 25.0 on 2026-07-26 to cut relay cycles
-(about 13/day) as the weather cooled, then 25.0 → 26.0 on 2026-08-07. The second change
-was because the glass probe reads high on each heating spike and cuts the belt while the
-liquid is still near the bottom of the range (~23–23.5C on a 2L batch in a ~16C room);
-letting the glass run to 26 lifts the liquid trough a little. A wider deadband (now 2.5C)
-also means fewer, longer pulses. The glass peak of ~26 stays well clear of the 30C cutoff.
-
-Rule1 and Rule2 are split because a single rule set is limited to 511 bytes, and because
-it keeps "is this reading real?" separate from "what should the heat do?".
+Rule1/Rule2 are split because a rule set is capped at 511 bytes, and it separates "is this
+reading real?" from "what should the heat do?".
 
 ### The failsafe
 
@@ -234,238 +246,207 @@ it keeps "is this reading real?" separate from "what should the heat do?".
 PulseTime1 700
 ```
 
-This is the most important line in the project and the least obvious.
+The most important line, and the least obvious. `PulseTime` normally makes a relay switch
+off after a set time (a stairwell timer). Values 112–64900 mean *seconds offset by 100*,
+so **700 = 600 seconds**.
 
-`PulseTime` is normally used to make a relay switch off automatically after a set time
-— a stairwell-light timer. Values 112–64900 mean *seconds, offset by 100*, so **700
-means 600 seconds**. (Values 1–111 mean tenths of a second, which is why the offset
-exists.)
+What makes it a watchdog: **re-issuing `Power ON` while the relay is already on restarts
+the countdown.** The Rule2 heartbeat does exactly that on every reading while the heater
+should be on. As long as readings keep arriving, the countdown never expires; the moment
+they stop — dead sensor, dead WiFi, dead broker, crashed HA — it runs out and the plug
+switches itself off. A dead-man's switch: heat stays on only while something keeps asking.
 
-The behaviour that makes it a watchdog: **re-issuing `Power ON` while the relay is
-already on restarts the countdown.** The heartbeat lines in Rule2 do exactly that on
-every reading while the belt should be heating (whether the reading is below the on
-threshold or sitting in the deadband). As long as readings keep arriving, the countdown
-never expires. The moment they stop — dead sensor, dead WiFi, dead broker, crashed HA —
-the countdown runs out and the plug switches itself off.
+**What it does and does not protect against.** It is a *communication* watchdog — it fires
+when readings *stop*. It is **not** a thermal-runaway limit. A sensor producing
+plausible-but-wrong *low* readings (dangling in room air, or a heater fitted outside the
+insulation so the glass never warms) keeps the heartbeat alive and the heater on;
+lengthening `PulseTime` wouldn't help. A single-sensor-per-station thermostat cannot defend
+against its sensor lying plausibly. The `>30` cutoff is a partial backstop; physical
+mitigations (insulation pressing the probe to the glass so it can't dangle) matter more.
 
-It is a dead-man's switch: the heat stays on only while something keeps actively
-asking for it.
-
-**What `PulseTime` does and does not protect against.** It is a *communication*
-watchdog: it fires when readings *stop*. It is **not** a thermal-runaway limit. If the
-sensor keeps producing plausible-but-wrong low readings — e.g. it falls off the vessel
-and measures cooler room air, or the belt is fitted outside the insulation so the glass
-never warms — the rule correctly says "heat", the heartbeat keeps arriving, and the belt
-stays on. Lengthening `PulseTime` would not help; the readings are valid, just wrong. A
-single-sensor thermostat cannot defend against its one sensor lying plausibly. The `>30`
-cutoff is a partial backstop, and physical mitigations (the insulation presses the probe
-against the glass so it cannot dangle) matter more here than any rule.
-
-`PulseTime` survives a reboot, and after a power cut the relay comes back **off** with
-the countdown at zero, waiting for a fresh reading.
-
-`PowerOnState 0` complements this: it stops the plug from booting the relay on. Without
-it, a power cut would leave the belt heating unattended until the first reading arrived.
+`PulseTime` survives a reboot and comes back with the relay **off**, waiting for a fresh
+reading. `PowerOnState 0` complements it.
 
 ## Verifying it works
 
-Watch the loop live:
+Use [`log-temps.sh`](log-temps.sh) — it polls the sensor and both plugs every ~10 s and
+logs one row per tick (time, each station's temp, each plug's `Var1`/relay/watts). This
+fast sampling is the tool that reveals what the Grafana dashboard's 30–60 s steps alias
+away (the belt's self-cutout, the exact value at a switch-off).
+
+A healthy loop: a plug's `Var1` tracks its station's temperature (a one-reading lag is
+normal), and its `PulseTime1` `Remaining` sawtooths — decaying then jumping back up each
+time a reading refreshes it, never quite reaching 700. If `Remaining` counts steadily down
+with no jump-back, readings aren't arriving.
+
+Confirm a heater actually draws power (the plugs meter their own load):
 
 ```bash
-watch -n5 'curl -s "http://192.168.0.64/cm?cmnd=Status%2010"; echo; \
-           curl -s "http://192.168.0.58/cm?cmnd=Var1"; \
-           curl -s "http://192.168.0.58/cm?cmnd=Power"; \
-           curl -s "http://192.168.0.58/cm?cmnd=PulseTime1"'
+curl -s "http://192.168.0.32/cm?cmnd=Status%208"   # mat: ~22W steady when on
+curl -s "http://192.168.0.57/cm?cmnd=Status%208"   # belt: ~32W, self-cycling (see gotchas)
 ```
-
-A healthy system shows the plug's `Var1` tracking the sensor's temperature, and
-`Remaining` sawtoothing — decaying to roughly 640 then jumping back to roughly 680 each
-time a reading refreshes it. It never reaches the full 700, because the refresh happens
-60 seconds after the last one. If `Remaining` counts steadily down through those values
-without ever jumping back up, readings are not arriving.
-
-`Var1` may lag the sensor by one reading (e.g. sensor 18.7, `Var1` 18.8). That is just
-the 60-second telemetry beat, not a fault.
-
-Confirm the belt is actually drawing power (the plug meters its own load):
-
-```bash
-curl -s "http://192.168.0.58/cm?cmnd=Status%208"
-```
-
-`Power` should read ~25W with the belt on, and 0W with it off.
 
 ### Testing the failsafe
 
-**Disable the sensor's rule first** (`Rule1 0` on the sensor), or the test is
-meaningless — see the gotchas. Then set a short timeout, trigger the heat, and watch:
+**Disable the sensor's broadcast first** or the test is meaningless — the broadcaster's
+real readings interleave with your synthetic ones and silently re-arm the watchdog (see
+gotchas). On the C3, remove the broadcast rule, then inject and watch:
 
 ```bash
-curl -s "http://192.168.0.64/cm?cmnd=Rule1%200"          # silence the sensor
-curl -s "http://192.168.0.58/cm?cmnd=PulseTime1%20130"   # 30s instead of 600s
-curl -s --get "http://192.168.0.58/cm" --data-urlencode "cmnd=Event brewtemp=22.0"
-# poll Power and PulseTime1 — the relay should switch itself off after ~30s
-
-curl -s "http://192.168.0.58/cm?cmnd=PulseTime1%20700"   # restore
-curl -s "http://192.168.0.64/cm?cmnd=Rule1%201"          # re-arm the sensor
+# silence the C3 broadcaster (Berry):
+curl -s --get "http://192.168.0.91/cm" --data-urlencode 'cmnd=Br tasmota.remove_rule("Tele#DS18B20-1#Temperature")'
+curl -s "http://192.168.0.32/cm?cmnd=PulseTime1%20130"                       # 30s instead of 600s
+curl -s --get "http://192.168.0.32/cm" --data-urlencode "cmnd=Event mat=22.0"  # drive it on
+# poll Power + PulseTime1 — relay should switch itself off after ~30s
+curl -s "http://192.168.0.32/cm?cmnd=PulseTime1%20700"                       # restore
+curl -s "http://192.168.0.91/cm?cmnd=Restart%201"                            # reboot C3 to reload autoexec
 ```
 
-## Home Assistant
+## Home Assistant & Grafana
 
-Both devices already publish to the broker, so temperature, relay state, and the plug's
-energy metering surface without extra work. `SetOption19` is **off** on both, which is
-correct for HA's native Tasmota integration — do not turn it on unless you have
-deliberately switched to legacy MQTT discovery.
+All devices publish to the broker, so each station's temperature, relay state, and plug
+energy surface without extra work. `SetOption19` is **off** (correct for HA's native
+Tasmota integration). Home Assistant is a **spectator** — not in the control path; the
+thermostats keep working with it switched off.
 
-Home Assistant is a **spectator**. It is not in the control path, and the thermostat
-keeps working correctly with HA switched off entirely.
+The Grafana dashboard ([`temp-dashboard.json`](temp-dashboard.json)) has a "Fermentation
+Temperatures" panel showing the three probes with shaded heater-on bands per station, plus
+a generic "Probe Temperature" panel for any other DS18B20. It is edited via the Grafana
+API (the token lives in `.grafana-token`, gitignored) because pasting into the web editor
+hangs the browser.
 
 ## Gotchas
 
-Everything below was established empirically, mostly by getting it wrong first. Read
-this section before extending the system.
+Everything below was established empirically, mostly by getting it wrong first. Read this
+before extending the system.
+
+### Fresh Tasmota ≥15.6 needs `SetOption128 1` before the HTTP API works
+
+Without it, `/cm?cmnd=...` calls with no `Referer` header (all `curl`/script access) are
+silently denied — the web UI serves fine but every command returns an empty reply, and the
+console logs `HTP: Referer '' denied`. Also needs `WebServer 2` (admin mode). Must be set
+from the device's own console (chicken-and-egg: you can't reach `/cm` to set it remotely).
 
 ### Device Groups cannot share sensor values, despite the documentation
 
-The Tasmota docs state that device groups share "sensor values". **They do not.** The
-`DevGroupItem` enum in `tasmota/include/tasmota.h` contains no temperature or sensor
-item — `DGR_ITEM_ANALOG1..5` exist only as commented-out lines where someone started
-the feature and abandoned it.
+The docs claim device groups share "sensor values". **They do not.** The `DevGroupItem`
+enum in `tasmota/include/tasmota.h` has no temperature item (`DGR_ITEM_ANALOG1..5` exist
+only as commented-out lines). What works is `DGR_ITEM_EVENT` (**item 192**), an arbitrary
+string fired as an event on every member — hence `192=<station>=%value%`. Item codes are
+derived from the enum's size boundaries (`DGR_ITEM_MAX_32BIT = 191`, so the first string
+item is 192).
 
-What actually works is `DGR_ITEM_EVENT` (**item 192**), which carries an arbitrary
-string to every group member and fires it as an event. Hence `192=brewtemp=%value%`.
-`DGR_ITEM_COMMAND` is item 193, matching the docs' `DevGroupSend 193=Buzzer\ 2,3`
-example.
+### Plug-to-plug event leak — plugs must use `DevGroupShare 64,0`
 
-The item codes are not listed anywhere convenient; they are derived from the enum's
-size boundaries (`DGR_ITEM_MAX_32BIT = 191`, so the first string item is 192).
+With two plugs in one group both set to `64,64`, each plug **re-broadcast its own internal
+pipeline events** (`s1`/`s2`/`hb` — the rule chain's intermediate stages) back into the
+group, and the other plug's rules fired on them. Result: the belt switched on/off based on
+the *mat* jar's temperature, chattering every 1–2 minutes. This did **not** show in
+single-plug testing — it needs ≥2 plugs sharing the event namespace. Fix: plugs use
+`DevGroupShare 64,0` (receive events, send none); only the sensor broadcasts. Persists
+across reboot. (A longer-term fix for a bigger rig would be station-prefixed internal event
+names, e.g. `belt_s2`.)
+
+### Transient events collide — stagger multi-station broadcasts
+
+Device-group Event items are fire-and-forget (unlike power/light state, which is synced
+and retransmitted). Three events fired back-to-back in a tight loop **collide and are
+silently dropped** — the receiver's `Var1` never updates, even though the sender logs all
+three `DevGroupSend`s and the group shows sequence-synced. A single send always lands. Fix
+in `autoexec.be`: stagger the three sends ~300 ms apart via `set_timer`. Diagnostic that
+cracked it: watch the *receiver's* own `stat/.../RESULT` — silence there means the event
+never arrived.
 
 ### `DevGroupShare` reports in hex
 
-Set `64,64` and it reports back `40`. That is not an error: `0x40` = 64 decimal. Set
-`1,1` and it reports `1`. Confusing when you are checking your own work.
+Set `64,64`, it reports `40`. Not an error: `0x40` = 64. Set `1,1`, it reports `1`.
+Confusing when checking your own work.
 
 ### Comparison operators parse junk as zero — so `<` is dangerous
 
-`ON Event#x<40` **fires** when `%value%` is `abc` or empty, because a non-numeric
-payload parses as `0`, and `0 < 40`. For a heater this is the worst possible failure:
-a garbled reading looks like "freezing cold" and switches the belt on.
-
-`ON Event#x>5` correctly rejects `abc`, empty, `-127.0` and `-127`.
-
-**So gate on `>`, never `<`.** Let only a plausible value through and let everything
-else fall to the safe state. This is why the sanity check is a positive whitelist.
-
-### Things that are *not* true
-
-Each of these was suspected, tested, and disproved. Don't waste time re-investigating:
-
-- **"Only the first matching trigger per event name fires."** False. Multiple triggers
-  can share an event name and all of them evaluate correctly.
-- **"`%value%` doesn't survive a `Backlog` chain."** False. It propagates fine into a
-  follow-on `Event`.
-- **"Decimal thresholds don't work."** False. `>24.5` compares correctly.
-
-### The testing trap that will bite you
-
-Injecting synthetic values with `Event brewtemp=...` **while the sensor's broadcast
-rule is armed** produces nonsense. Real readings arrive every 60 seconds and interleave
-with the injected ones, overwriting them. This cost real debugging time: a "dead sensor"
-test appeared to show the failsafe completely broken, when in fact the sensor was alive
-and legitimately re-arming the watchdog throughout.
-
-**Before testing the plug, disable the sensor's rule (`Rule1 0`) and confirm silence**
-by checking that the plug's `Var1` stops changing.
-
-Relatedly, a reading that is *rejected* leaves the relay in its previous state. If you
-inject `-127` and see the heat still on, that is correct — nothing turned it on, and
-the rejected reading is not a heartbeat, so `PulseTime` will kill it. Judge the failsafe
-by `Remaining` counting down, not by the immediate relay state.
-
-### `SetOption85` needs a restart
-
-Setting it is not enough; device groups stay inert until the device reboots. Both
-devices.
-
-### Keep `TelePeriod` well below the failsafe window
-
-`TelePeriod` is the heartbeat rate. At the default of 300s against a 600s failsafe you
-get **two** heartbeats per window, and a single dropped multicast packet risks a
-spurious cutout. 60s gives ten. If you ever lengthen `TelePeriod`, lengthen `PulseTime`
-to match.
+`ON Event#x<40` **fires** when `%value%` is `abc` or empty, because a non-numeric payload
+parses as `0` and `0 < 40`. For a heater this is the worst failure: junk looks like
+"freezing" and switches the heat on. `ON Event#x>5` correctly rejects `abc`, empty, and
+`-127`. **So gate on `>`, never `<`** — a positive whitelist.
 
 ### The heartbeat starvation bug (a deadband can starve the failsafe)
 
-This one ran undetected for over a week and is the reason Rule2 looks the way it does.
+The reason Rule2 has the latch and heartbeat lines. Originally the failsafe and the
+thermostat shared one signal: `Power on`, issued only by the "too cold" line. Once the
+temperature climbed into the deadband, **no rule fired**, so the heartbeat stopped
+refreshing *even though readings kept arriving* — and after 600 s the firmware cut the
+heater. Symptom: the heater appeared to "turn off at 24.5°C" with **no rule trigger in the
+log**, because it was the watchdog timing out, not a threshold; every pulse capped at ~10
+min regardless of temperature. Fix (2026-07-27): a latch (`Var4`) plus heartbeat lines that
+re-issue `Power on` on **every** reading while the latch is set. **Lesson: if a failsafe
+heartbeat is driven by a control rule, make sure it still fires in the states where the
+control rule is deliberately silent.** A deadband is exactly such a state.
 
-The failsafe (`PulseTime`) and the thermostat originally shared one signal: `Power on`.
-The heartbeat was only refreshed by the "too cold" line (`Event#s2<23.5 DO Power1 on`).
-That is fine while the belt is warming from below the setpoint — but the moment the
-temperature climbs into the deadband (23.5–25.0), **no rule fired**, so no `Power on` was
-issued, so the heartbeat stopped being refreshed *even though readings were still
-arriving every 60s*. After 600s the firmware cut the belt.
-
-The symptom was maddening: the belt appeared to "turn off at 24.5C" with **no rule
-trigger in the plug's log** — because it was the watchdog timing out, not a threshold.
-Widening the off threshold did nothing, because the belt never reached it; it timed out
-first. Every pulse was capped at ~10 minutes regardless of temperature. It only became
-visible when cooler weather made the heating phase long enough to sit in the deadband
-past the 600s window.
-
-The fix (deployed 2026-07-27): a software latch (`Var4`) remembers "the belt should be
-heating", and dedicated heartbeat lines re-issue `Power on` on **every** reading while
-the latch is set — refreshing the countdown through the deadband without re-triggering
-the relay. The lesson: **if a failsafe heartbeat is driven by a control rule, make sure
-the heartbeat still fires in the states where the control rule is deliberately silent.**
-A deadband is exactly such a state.
-
-Watch out for the evaluation-order race, too: the heartbeat reads the latch via
-`Event hb=%var4%`, and that `%var4%` must be expanded *after* the decision lines have
-committed their `Backlog Var4 ...`. Emitting the heartbeat through a 1-second `RuleTimer`
-guarantees this; firing it inline in the same reading-pass reads the stale latch and, at
-the off transition, cancels the power-off.
+There's an evaluation-order race too: the heartbeat reads the latch via `Event hb=%var4%`,
+which must expand *after* the decision lines commit their `Backlog Var4 ...`. The 1-second
+`RuleTimer` guarantees this; firing it inline reads the stale latch and cancels the
+power-off at the off transition.
 
 ### The belt has its own internal cutout — 0W with the relay ON is normal
 
-The brew belt contains its **own** thermal cutout (a bimetallic switch), independent of
-anything in this project. So while our relay is ON, the belt self-cycles: it draws its
-normal ~32W for roughly a minute, its internal cutout opens, it draws **0W for roughly a
-minute**, then closes again — repeating on a ~1–2 minute period for the whole time our
-relay holds it on. An owner review of the belt confirms it: *"It does turn itself on and
-off perhaps every few minutes."*
+The brew **belt** (not the mat) contains its own bimetallic thermal cutout. While our
+relay is ON it self-cycles: ~32 W for ~1 min, then its cutout opens and it draws **0 W for
+~1 min**, repeating. This is **not a fault**, but looks exactly like an intermittent open
+circuit (`watts`/current drop to a clean 0, `ENERGY.Today` freezes, relay still ON). The
+tell that it's the cutout: the **temperature keeps rising** across the 0 W stretch, and
+current is clean full-on/full-off, never partial. Only visible if you sample faster than
+~1 min; the Grafana dashboard's 30–60 s steps alias it to a flat 32 W. The **mat** has no
+cutout — steady ~22 W — so for the mat, relay-ON + 0 W *would* be a real fault.
 
-This is **not a fault.** But it looks exactly like one, and it caused a genuine scare:
-- `watts` (or `Status 8` Current/Power) drops to a clean **0.000 A / 0 W** while `relay`
-  stays **ON**, and the `ENERGY.Today` counter **freezes** during those windows. That is
-  indistinguishable, from the electrical data alone, from an intermittent open circuit
-  (a failing lead or connection). The tell that it is the belt's cutout and not a fault:
-  the **glass temperature keeps rising** across the 0W stretch, and the current is a clean
-  full-on/full-off (0.125A / 0.000A), never a marginal in-between.
-- It is only visible if you sample **faster than the belt's cycle** — every few seconds.
-  Coarser sampling (the Grafana dashboard's 30–60s steps) aliases the cycling into what
-  looks like a steady 32W, which is why we thought the belt drew constant power for weeks.
+If you ever suspect a genuine intermittent connection (arcing is a mains hazard): a real
+open circuit will **not** show the temperature still climbing, and shows erratic/partial
+current rather than a clean ~1-min on/off rhythm.
 
-Consequence for the design: there are effectively **two thermostats in series** — the
-belt's crude internal one (cycling on its own surface temperature, ~1 min period) and
-ours (cycling on the glass probe, hours-long period). They do not fight: ours gates the
-mains supply and sets the setpoint; the belt's cutout just makes delivery gentler and
-self-limiting within each of our ON windows. It also partly explains the "hot fast then
-cooler while powered" feel of the belt — that is partly the glass-vs-liquid gradient and
-partly the belt genuinely cycling its own output.
+### The testing trap that will bite you
 
-If you ever *do* suspect a real intermittent connection (arcing at a joint is a genuine
-mains hazard), the distinguishing check is: a real open circuit will **not** show the
-temperature still climbing, and will often show erratic/partial current rather than a
-clean 0.000A on a regular ~1-minute rhythm.
+Injecting synthetic `Event <station>=...` values **while the sensor broadcaster is running**
+produces nonsense: real readings arrive every 60 s and overwrite your injected ones. This
+cost real debugging time — a "dead sensor" test appeared to show the failsafe broken when
+the sensor was alive and re-arming the watchdog throughout. **Disable the broadcaster first**
+(remove the Berry rule) and confirm the plug's `Var1` stops changing. Also: a *rejected*
+reading leaves the relay in its previous state — judge the failsafe by `PulseTime`
+`Remaining` counting down, not by the immediate relay state.
+
+### Things that are *not* true
+
+Each suspected, tested, disproved — don't re-investigate:
+
+- "Only the first matching trigger per event name fires." False — multiple triggers share
+  an event name and all evaluate.
+- "`%value%` doesn't survive a `Backlog` chain." False — it propagates into a follow-on
+  `Event`.
+- "Decimal thresholds don't work." False — `>24.5` compares correctly.
+
+### Berry notes (sensor side)
+
+- Telemetry trigger is `Tele#DS18B20-1#Temperature`. `Tele-...` (the Rules-era prefix)
+  never fires on 15.6; the bare `DS18B20-1#Temperature` fires on every raw read (~1.4 Hz, a
+  flood), not once per `TelePeriod`.
+- `import string` is required before `string.format`, or `load()` fails silently
+  (`'string' undeclared`, and `load()` returns false).
+- Match probes by ROM `Id`, never by the `DS18B20-N` index (which can reorder if sensors
+  change). `DS18Alias` is not in this build.
+- A self-rescheduling `set_timer` did **not** survive reboot reliably; hook the telemetry
+  event instead.
+
+### Keep `TelePeriod` well below the failsafe window
+
+`TelePeriod` is the heartbeat rate. At 300 s against a 600 s failsafe you get only two
+heartbeats per window and a dropped packet risks a spurious cutout. 60 s gives ten. If you
+lengthen `TelePeriod`, lengthen `PulseTime` to match.
 
 ## Possible extensions
 
-- **Cooling.** A second plug in the same device group could drive a fan, using a
-  separate event stage and its own deadband.
-- **A second sensor.** The plug's ESP8285 has ~370 bytes free in Rule1 and ~400 in
-  Rule2; a redundant sensor with disagreement detection would likely need Rule3 or a
-  move to a Berry-capable plug.
-- **Ramp profiles.** Berry on the sensor (the ESP32 has it) could vary the setpoint over
-  a fermentation schedule and broadcast the target alongside the temperature.
-- **Alerting.** An HA automation on the plug's `LWT` or on a stale `Var1` would catch
-  a failsafe cutout, which is otherwise silent by design.
+- **Move control logic into Berry.** The cramped plug-side Rules caused most of this
+  project's bugs; the Berry-capable C3 already has every temperature. A proposed redesign
+  (see `CLAUDE.md`) would have Berry make the decision in readable code and broadcast a
+  pre-decided on/off command, leaving the plug to keep only `PulseTime`. Not built.
+- **Cooling.** A fan plug in the same group, on its own station event and deadband.
+- **Ramp profiles.** Berry on the C3 could vary the setpoint over a fermentation schedule.
+- **Alerting.** An HA automation on a plug's `LWT` or a stale `Var1` would catch a failsafe
+  cutout, which is otherwise silent by design.
